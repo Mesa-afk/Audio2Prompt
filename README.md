@@ -185,7 +185,7 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-The workflow can also be started manually (`workflow_dispatch`); manual runs keep the archive as a workflow artifact without publishing a release.
+The workflow is triggered only by version tags (`v*`) and always publishes the archive to a GitHub Release; the `contents: write` permission is what allows the file to be attached.
 
 ## Troubleshooting
 
