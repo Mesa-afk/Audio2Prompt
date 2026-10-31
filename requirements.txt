@@ -1,0 +1,13 @@
+# Voice2LLM runtime and build dependencies (pinned, Python 3.10+)
+
+# ASR engine: CTranslate2 backend with bundled PyAV decoding (no system FFmpeg)
+faster-whisper==1.2.1
+
+# Dark-mode desktop GUI
+customtkinter==5.2.2
+
+# System clipboard integration
+pyperclip==1.11.0
+
+# Windows/macOS/Linux binary builder
+pyinstaller==6.22.3
