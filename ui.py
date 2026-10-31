@@ -84,10 +84,11 @@ LANGUAGE_LABELS: Dict[str, str] = {
 }
 
 MODEL_HINTS: Dict[str, str] = {
-    "base": "Самая быстрая · низкая точность",
-    "small": "Быстрая · хороший баланс",
-    "medium": "Точная · требует больше ресурсов",
-    "large-v3-turbo": "Максимальная точность · нужен GPU",
+    "base": "Черновая точность · очень быстро",
+    "small": "Быстрая · средняя точность",
+    "medium": "Высокая точность · больше ресурсов",
+    "large-v3-turbo": "Быстрая большая модель · нужен GPU",
+    "large-v3": "Максимальная точность · медленно без GPU",
 }
 
 
@@ -390,7 +391,42 @@ class Voice2LLMApp(ctk.CTk):
             text_color=COLOR_MUTED,
             anchor="e",
         )
-        self.model_hint_label.grid(row=1, column=0, columnspan=4, sticky="e", pady=(10, 0))
+        self.model_hint_label.grid(
+            row=1, column=0, columnspan=3, sticky="w", pady=(10, 0)
+        )
+
+        self.accuracy_switch = ctk.CTkSwitch(
+            settings,
+            text="Точный режим",
+            font=self.font_body,
+            text_color=COLOR_TEXT,
+            progress_color=COLOR_ACCENT,
+            button_color=COLOR_TEXT,
+            button_hover_color="#FFFFFF",
+            width=48,
+            command=self._refresh_model_hint,
+        )
+        self.accuracy_switch.grid(row=1, column=3, sticky="e", pady=(10, 0))
+        self.accuracy_switch.select()
+
+        self.context_entry = ctk.CTkEntry(
+            settings,
+            placeholder_text=(
+                "Контекст: имена, названия, термины, тема записи (необязательно)"
+            ),
+            height=36,
+            corner_radius=9,
+            border_width=1,
+            border_color=COLOR_BORDER,
+            fg_color=COLOR_PANEL_INNER,
+            text_color=COLOR_TEXT,
+            placeholder_text_color=COLOR_MUTED,
+            font=self.font_body,
+        )
+        self.context_entry.grid(
+            row=2, column=0, columnspan=4, sticky="ew", pady=(12, 0)
+        )
+        self._refresh_model_hint()
 
     def _build_controls(self, parent: ctk.CTkFrame) -> None:
         controls = ctk.CTkFrame(parent, fg_color="transparent")
@@ -638,7 +674,17 @@ class Voice2LLMApp(ctk.CTk):
         )
 
     def _on_model_change(self, selected_model: str) -> None:
-        hint = MODEL_HINTS.get(selected_model, "")
+        self._refresh_model_hint()
+
+    def _refresh_model_hint(self) -> None:
+        """Show the model hint plus accuracy advice for the current selection."""
+        model = self.model_menu.get()
+        hint = MODEL_HINTS.get(model, "")
+        if self.accuracy_switch.get():
+            if model in ("base", "small"):
+                hint = f"{hint} · для точности выберите large-v3"
+            else:
+                hint = f"{hint} · beam 10"
         self.model_hint_label.configure(text=hint)
 
     def _on_llm_toggle(self) -> None:
@@ -673,6 +719,8 @@ class Voice2LLMApp(ctk.CTk):
         self.model_menu.configure(state=options_state)
         self.language_menu.configure(state=options_state)
         self.llm_switch.configure(state=options_state)
+        self.accuracy_switch.configure(state=options_state)
+        self.context_entry.configure(state=options_state)
 
         prompt_state = (
             "normal" if bool(self.llm_switch.get()) and not running else "disabled"
@@ -699,6 +747,8 @@ class Voice2LLMApp(ctk.CTk):
         include_prompt = bool(self.prompt_checkbox.get()) and llm_mode
         language = LANGUAGE_LABELS.get(self.language_menu.get(), "auto")
         model_size = self.model_menu.get()
+        accuracy_mode = bool(self.accuracy_switch.get())
+        hotwords = self.context_entry.get().strip() or None
 
         self._messages = queue.Queue()
         try:
@@ -708,6 +758,8 @@ class Voice2LLMApp(ctk.CTk):
                 language=language,
                 llm_mode=llm_mode,
                 include_system_prompt=include_prompt,
+                accuracy_mode=accuracy_mode,
+                hotwords=hotwords,
                 message_queue=self._messages,
                 models_dir=models_directory(),
             )
@@ -826,6 +878,7 @@ class Voice2LLMApp(ctk.CTk):
 
     def _reset_after_device_fallback(self) -> None:
         self._clear_transcript()
+        self._run_started_at = time.monotonic()
         self._percent = 0.0
         self._eta = None
         self._words = 0
@@ -858,7 +911,10 @@ class Voice2LLMApp(ctk.CTk):
         self._eta = None
 
         device = str(message.get("device") or "")
+        compute_type = str(message.get("compute_type") or "")
         device_label = "GPU (CUDA)" if device == "cuda" else "CPU"
+        if compute_type:
+            device_label = f"{device_label} · {compute_type}"
         language = str(message.get("language") or "")
         language_text = f" · язык: {language}" if language else ""
 

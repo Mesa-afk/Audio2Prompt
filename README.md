@@ -43,7 +43,8 @@ Voice2LLM fixes all of this: it decodes audio with the PyAV build that ships ins
   - **LLM Ready** — clean paragraphs, no timecodes, optional Russian system prompt:
     > Ниже представлена транскрибация аудиозаписи. Проанализируй текст, выдели ключевые тезисы, инсайты и список задач (Action Items):
   - **With timecodes** — `[HH:MM:SS -> HH:MM:SS] Text`, ideal for subtitles and citations.
-- **Automatic GPU acceleration.** CUDA + `float16` is selected when a compatible GPU is found; otherwise the app falls back to CPU `int8`, and even retries on CPU if CUDA fails mid-run.
+- **Accuracy first.** The full `large-v3` model is available next to the fast `large-v3-turbo`, a dedicated **Accuracy mode** widens beam search to 10, uses unquantised `float32` CPU inference and adds a punctuation-rich prompt, and the **Context** field feeds names, brands and technical terms to Whisper as hotwords.
+- **Automatic GPU acceleration.** CUDA + `float16` is selected when a compatible GPU is found; otherwise the app falls back to CPU (`int8`, or `float32` in accuracy mode), and even retries on CPU if CUDA fails mid-run. The status line always reports the device and compute type actually in use.
 - **Live feedback.** Streaming segments, percentage, elapsed/remaining time, word count and an estimated token count (`words × 1.33`).
 - **Cancellable and thread-safe.** Recognition runs in a dedicated `threading.Thread`; the GUI is updated only through a `queue.Queue`, and a `threading.Event` cancels gracefully while keeping partial results.
 - **Modern dark UI.** `customtkinter` interface with a `#0B0B0D` canvas, `#16161A` panels, `#A855F7` accents, auto-scroll, one-click copy and `.txt` / `.md` export.
@@ -65,7 +66,9 @@ Voice2LLM fixes all of this: it decodes audio with the PyAV build that ships ins
 4. Run **`Voice2LLM.exe`**.
 5. Pick an audio file, choose a model, press **Начать транскрибацию**.
 
-> **First launch:** the selected Whisper model is downloaded from Hugging Face into the `models/` folder next to the executable. `base` is a few hundred MB; `large-v3-turbo` is about 1.6 GB. Later launches start instantly and work fully offline.
+> **First launch:** the selected Whisper model is downloaded from Hugging Face into the `models/` folder next to the executable. `base` is a few hundred MB, `large-v3-turbo` is about 1.6 GB and `large-v3` is about 3.1 GB. Later launches start instantly and work fully offline.
+
+> **For the most accurate transcript,** choose `large-v3`, keep **«Точный режим»** enabled and add names or terms to **«Контекст»** — see [Improving Accuracy](#improving-accuracy). This is slower, especially without a CUDA GPU.
 
 > **Windows SmartScreen:** the binary is unsigned, so Windows may show “Windows protected your PC”. Choose *More info → Run anyway*.
 
@@ -162,11 +165,25 @@ With the default `--noconsole` mode PyInstaller creates a `Voice2LLM.app` bundle
 | `base` | 74 M | ~145 MB | Draft quality, good for clear speech | Any CPU, very fast |
 | `small` | 244 M | ~485 MB | Good balance (default) | Modern CPU, ~10× faster on GPU |
 | `medium` | 769 M | ~1.5 GB | High quality, strong on accents | GPU recommended (4 GB+ VRAM) |
-| `large-v3-turbo` | 809 M | ~1.6 GB | Best quality per second | GPU strongly recommended (6 GB+ VRAM) |
+| `large-v3-turbo` | 809 M | ~1.6 GB | Excellent quality at high speed | GPU strongly recommended (6 GB+ VRAM) |
+| `large-v3` | 1.55 B | ~3.1 GB | **Maximum accuracy**, best Russian punctuation and rare words | NVIDIA GPU (10 GB+ VRAM); CPU works but is slow |
 
 A two-hour podcast on a mid-range GPU with `large-v3-turbo` typically takes a few minutes; the same job on CPU with `small` is considerably slower but still works.
 
-**Platform notes.** Windows and Linux can use an NVIDIA GPU through CUDA (`float16`); without a compatible GPU the app automatically selects CPU `int8`. macOS is CPU-only because CTranslate2 does not support Metal/MPS, so `large-v3-turbo` on a Mac is noticeably slower — `small` or `medium` is usually the better trade-off.
+**Platform notes.** Windows and Linux can use an NVIDIA GPU through CUDA (`float16`); without a compatible GPU the app automatically selects CPU (`int8`, or `float32` in accuracy mode). macOS is CPU-only because CTranslate2 does not support Metal/MPS, so `large-v3-turbo` on a Mac is noticeably slower — `small` or `medium` is usually the better trade-off.
+
+## Improving Accuracy
+
+Whisper quality depends far more on the model and the audio than on any UI setting. If the transcript contains misheard words, missing phrases or broken punctuation, work through this list in order:
+
+1. **Use `large-v3`.** It is the most accurate Whisper model for Russian and most other languages. `base` and `small` are meant for drafts, not for final transcripts.
+2. **Keep “Точный режим” (Accuracy mode) on.** It raises `beam_size` from 5 to 10, uses `float32` instead of `int8` on CPU, and adds a punctuation-rich initial prompt. Expect CPU transcription to be noticeably slower (often 2–4×) — that is the intended speed/quality trade-off.
+3. **Describe the recording in “Контекст”.** Names, companies, product names, acronyms and domain terms are passed to Whisper as hotwords in every 30-second window. For example: `Иван Петров, Kubernetes, Voice2LLM, выручка, CAC, LTV`.
+4. **Select the language explicitly.** `ru` or `en` is more reliable than auto-detection, especially on recordings with music, silence or several speakers. Auto-detection samples the first three 30-second windows and cannot be corrected afterwards, so an explicit language is still safer.
+5. **Start from the best source audio.** A 64 kbps re-encode loses consonants that no model can recover. Prefer the original WAV/M4A/MP3, remove background music where possible, and avoid recordings made with aggressive noise suppression.
+6. **Check which device is active.** The status line shows `GPU · CUDA · float16` or `CPU · float32`. A GPU does not change the model itself, but it makes `large-v3` fast enough to use; if the app reports CPU after saying “GPU-ускорение недоступно”, the CUDA/cuDNN runtime is incomplete.
+
+Accuracy mode is also used in the **With timecodes** output mode, so both formats benefit from the same decoder settings.
 
 ## How It Works
 
@@ -183,8 +200,9 @@ audio.mp3 ──► PyAV decoder ──► 16 kHz mono PCM ──► Silero VAD 
 
 - **Decoding:** PyAV (bundled with `faster-whisper`) demuxes and resamples MP3/WAV/M4A without external tools.
 - **VAD:** Silero VAD drops silence so the model does not hallucinate over pauses.
-- **Inference:** CTranslate2 runs the Whisper model with `beam_size=5`. The worker keeps audio duration from the container header, so progress and ETA are available before the first segment arrives.
-- **Post-processing:** paragraphs close when the gap between segments exceeds **2.0 seconds**, after **6–8 sentences**, or when a paragraph grows beyond 900 characters. Sentence-ending punctuation is normalised so the result is coherent prose.
+- **Inference:** CTranslate2 runs the Whisper model with `beam_size=5`, or `10` in accuracy mode; that mode also switches CPU inference to `float32` and supplies a punctuation prompt. The worker keeps audio duration from the container header, so progress and ETA are available before the first segment arrives.
+- **Vocabulary:** names and terms from the context field are passed as Whisper hotwords, biasing every decoding window towards the expected spelling.
+- **Post-processing:** paragraphs close when the gap between segments exceeds **2.0 seconds**, after **6–8 sentences**, or when a paragraph grows beyond **700 characters**. Sentence-ending punctuation is normalised and the first letter of every paragraph is capitalised so the result is coherent prose.
 
 ### Example output
 
@@ -283,7 +301,7 @@ The workflow is triggered only by version tags (`v*`), runs on `windows-latest`,
 
 | Symptom | Fix |
 | --- | --- |
-| “GPU-ускорение недоступно… Переключаюсь на CPU” | CUDA/cuDNN DLLs are missing. The app already fell back to CPU; install the NVIDIA runtime if you want GPU speed. |
+| “GPU-ускорение недоступно… перезапуск на CPU” | CUDA/cuDNN DLLs are missing or the driver crashed. The app already restarted on CPU and reset the timer; install the NVIDIA runtime if you want GPU speed. |
 | Very slow first transcription | The model is downloading. Watch the status line; subsequent runs load from `models/` instantly. |
 | “Не удалось определить длительность аудиофайла” | The file is corrupt or is not an audio stream. Re-export it as MP3/WAV/M4A. |
 | SmartScreen / antivirus warning | Expected for an unsigned PyInstaller binary. Verify the release checksum or build from source. |

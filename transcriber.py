@@ -35,8 +35,9 @@ from typing import Any, Dict, List, Optional, Tuple
 # ---------------------------------------------------------------------------
 
 #: Whisper model sizes exposed in the GUI. ``large-v3-turbo`` is the fast
-#: large model (809M parameters, ~8x faster than ``large-v3``).
-MODEL_SIZES: Tuple[str, ...] = ("base", "small", "medium", "large-v3-turbo")
+#: large model (809M parameters); ``large-v3`` is the full 1.55B model and gives
+#: the highest accuracy, including punctuation and rare words.
+MODEL_SIZES: Tuple[str, ...] = ("base", "small", "medium", "large-v3-turbo", "large-v3")
 
 #: ``auto`` lets faster-whisper detect the spoken language.
 SUPPORTED_LANGUAGES: Tuple[str, ...] = ("auto", "ru", "en")
@@ -56,14 +57,30 @@ MIN_SENTENCES_PER_PARAGRAPH: int = 6
 MAX_SENTENCES_PER_PARAGRAPH: int = 8
 
 #: Safety valve for speeches that contain almost no punctuation at all.
-MAX_PARAGRAPH_CHARACTERS: int = 900
+MAX_PARAGRAPH_CHARACTERS: int = 700
 
 #: Rough token/word ratio for English, Russian and most European languages.
 TOKENS_PER_WORD: float = 1.33
 
-#: Inference parameters.
+#: Inference parameters. Accuracy mode uses a wider beam and unquantised CPU
+#: inference, which is slower but noticeably more precise.
 BEAM_SIZE: int = 5
+ACCURACY_BEAM_SIZE: int = 10
 VAD_MIN_SILENCE_DURATION_MS: int = 500
+
+#: Punctuation-rich prompts that nudge Whisper towards sentence casing and
+#: punctuation. They are only used in accuracy mode and only for a fixed
+#: language (auto-detection has no reliable style to bias towards).
+ACCURACY_INITIAL_PROMPTS: Dict[str, str] = {
+    "ru": (
+        "Это транскрипция разговора. Текст разбит на предложения, "
+        "с правильной пунктуацией, заглавными буквами и именами собственными."
+    ),
+    "en": (
+        "This is a conversation transcript. The text is split into sentences "
+        "with correct punctuation, capitalisation and proper nouns."
+    ),
+}
 
 #: Queue message types consumed by ``ui.py``.
 MSG_STATUS = "status"
@@ -194,6 +211,36 @@ def strip_timecodes(text: str) -> str:
         return text
     without_timecodes = _TIMECODE_RE.sub(" ", text)
     return normalize_segment_text(without_timecodes)
+
+
+def normalize_hotwords(text: Optional[str]) -> Optional[str]:
+    """Normalise user-provided names and terms for Whisper's ``hotwords``.
+
+    The prompt window is limited to 448 tokens, so the context is capped to a
+    reasonable length instead of silently truncating it mid-word.
+    """
+    if text is None:
+        return None
+    cleaned = _WHITESPACE_RE.sub(" ", str(text)).strip()
+    if not cleaned:
+        return None
+    if len(cleaned) <= 400:
+        return cleaned
+    head = cleaned[:400]
+    boundary = head.rfind(" ")
+    return (head[:boundary] if boundary > 0 else head).strip()
+
+
+def capitalize_first_letter(text: str) -> str:
+    """Upper-case the first letter of a paragraph, skipping quotes and dots."""
+    for index, character in enumerate(text):
+        if character.isalpha():
+            if character.islower():
+                return text[:index] + character.upper() + text[index + 1:]
+            return text
+        if character.isdigit():
+            return text
+    return text
 
 
 def count_sentences(text: str) -> int:
@@ -473,6 +520,8 @@ class TranscriptPostProcessor:
         if raw_paragraph[-1] not in ".!?…":
             raw_paragraph = raw_paragraph.rstrip(",;:—-– ") + "."
 
+        raw_paragraph = capitalize_first_letter(raw_paragraph)
+
         self._paragraph_index += 1
         chunk = f"{raw_paragraph}\n\n"
         self._rendered.append(chunk)
@@ -500,6 +549,12 @@ class TranscriberWorker:
         Enable paragraph merging and drop timecodes.
     include_system_prompt:
         Prepend :data:`SYSTEM_PROMPT` (only meaningful with ``llm_mode``).
+    accuracy_mode:
+        Wider beam search, unquantised CPU inference and a punctuation-rich
+        initial prompt. Slower, but more accurate.
+    hotwords:
+        Optional names, terms or topic hints passed to Whisper for every
+        decoding window.
     message_queue:
         Optional queue to use; a fresh :class:`queue.Queue` is created when not
         provided. Poll it with :meth:`queue.Queue.get_nowait` from the GUI.
@@ -522,6 +577,8 @@ class TranscriberWorker:
         language: str = "auto",
         llm_mode: bool = True,
         include_system_prompt: bool = False,
+        accuracy_mode: bool = True,
+        hotwords: Optional[str] = None,
         message_queue: Optional[queue.Queue] = None,
         models_dir: Optional[str | os.PathLike[str]] = None,
     ) -> None:
@@ -544,6 +601,8 @@ class TranscriberWorker:
         self.language = language
         self.llm_mode = bool(llm_mode)
         self.include_system_prompt = bool(include_system_prompt) and self.llm_mode
+        self.accuracy_mode = bool(accuracy_mode)
+        self.hotwords = normalize_hotwords(hotwords)
         self.message_queue: queue.Queue = (
             message_queue if message_queue is not None else queue.Queue()
         )
@@ -641,9 +700,10 @@ class TranscriberWorker:
             if self.cancel_event.is_set():
                 raise _Cancelled()
 
+            accuracy_label = " · точный режим" if self.accuracy_mode else ""
             self._emit_status(
                 f"Модель загружена · {self._device_label(device, compute_type)} · "
-                f"язык: {language_label}"
+                f"язык: {language_label}{accuracy_label}"
             )
 
             header = processor.render_header()
@@ -668,9 +728,8 @@ class TranscriberWorker:
                     and _is_cuda_error(inference_error)
                 ):
                     self._emit_status(
-                        "GPU-ускорение недоступно во время распознавания "
-                        f"({_truncate(inference_error, 140)}). "
-                        "Переключаюсь на CPU (int8)…"
+                        "GPU-ускорение недоступно · "
+                        f"{_truncate(inference_error, 52)} · перезапуск на CPU…"
                     )
                     self._release_model()
                     processor = TranscriptPostProcessor(
@@ -685,8 +744,12 @@ class TranscriberWorker:
                     header = processor.render_header()
                     if header is not None:
                         self._emit({"type": MSG_HEADER, "text": header})
+                    fallback_label = (
+                        " · точный режим" if self.accuracy_mode else ""
+                    )
                     self._emit_status(
-                        f"Распознавание на CPU · {self._device_label(device, compute_type)}"
+                        f"Распознавание · {self._device_label(device, compute_type)}"
+                        f"{fallback_label}"
                     )
                     self._stream(
                         model=model,
@@ -735,14 +798,26 @@ class TranscriberWorker:
         compute_type: str,
     ) -> None:
         """Consume the faster-whisper segment generator and emit queue events."""
+        initial_prompt = (
+            ACCURACY_INITIAL_PROMPTS.get(self.language)
+            if self.accuracy_mode
+            else None
+        )
         segments, info = model.transcribe(
             str(self.audio_path),
             language=None if self.language == "auto" else self.language,
             task="transcribe",
-            beam_size=BEAM_SIZE,
+            beam_size=ACCURACY_BEAM_SIZE if self.accuracy_mode else BEAM_SIZE,
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": VAD_MIN_SILENCE_DURATION_MS},
             word_timestamps=False,
+            # Hotwords bias vocabulary in every window, including proper nouns
+            # and domain terms supplied in the UI.
+            hotwords=self.hotwords,
+            initial_prompt=initial_prompt,
+            # Sample three windows instead of one when the language is unknown:
+            # a single quiet or musical window often picks the wrong language.
+            language_detection_segments=3 if self.language == "auto" else 1,
             # Disabled on purpose: conditioning on previous text is the main
             # cause of repetition loops and hallucinated phrases on long files.
             condition_on_previous_text=False,
@@ -759,9 +834,10 @@ class TranscriberWorker:
                 if isinstance(language_probability, (int, float))
                 else ""
             )
+            accuracy_label = " · точный режим" if self.accuracy_mode else ""
             self._emit_status(
                 f"Распознавание · {self._device_label(device, compute_type)} · "
-                f"язык: {detected_language}{probability_text}"
+                f"язык: {detected_language}{probability_text}{accuracy_label}"
             )
 
         self._emit(
@@ -912,8 +988,14 @@ class TranscriberWorker:
         if prefer_cuda:
             candidates.append(("cuda", "float16"))
             candidates.append(("cuda", "int8_float16"))
-        candidates.append(("cpu", "int8"))
-        candidates.append(("cpu", "float32"))
+        if self.accuracy_mode:
+            # Unquantised CPU inference is slower and needs more RAM, but it
+            # avoids the accuracy loss of int8 activations.
+            candidates.append(("cpu", "float32"))
+            candidates.append(("cpu", "int8"))
+        else:
+            candidates.append(("cpu", "int8"))
+            candidates.append(("cpu", "float32"))
 
         failures: List[str] = []
         for device, compute_type in candidates:

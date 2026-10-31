@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import List, Optional
 
 APP_NAME = "Voice2LLM"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 APP_PUBLISHER = "Mesa-afk"
 
 ROOT = Path(__file__).resolve().parent

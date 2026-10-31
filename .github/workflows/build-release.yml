@@ -72,4 +72,6 @@ jobs:
           files: Voice2LLM-windows-x64.zip
           generate_release_notes: true
           fail_on_unmatched_files: true
+          # Release candidates such as v1.1.0-rc1 must not become "Latest".
+          prerelease: ${{ contains(github.ref_name, '-') }}
           token: ${{ secrets.GITHUB_TOKEN }}
