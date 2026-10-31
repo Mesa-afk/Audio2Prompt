@@ -16,6 +16,10 @@
   <a href="https://github.com/Mesa-afk/Voice2LLM/actions/workflows/build-release.yml"><img alt="Build status" src="https://github.com/Mesa-afk/Voice2LLM/actions/workflows/build-release.yml/badge.svg"></a>
 </p>
 
+<p align="center">
+  <b>English</b> · <a href="README.ru.md">Русский</a>
+</p>
+
 ---
 
 ## The Problem
