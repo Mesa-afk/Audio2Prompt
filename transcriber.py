@@ -1,4 +1,4 @@
-"""Transcription engine for Voice2LLM.
+"""Transcription engine for Audio2Prompt.
 
 This module contains the complete audio -> text pipeline used by the desktop
 application:
@@ -290,7 +290,7 @@ def models_directory() -> Path:
         preferred.mkdir(parents=True, exist_ok=True)
         return preferred
     except OSError:
-        fallback = Path.home() / ".cache" / "voice2llm" / "models"
+        fallback = Path.home() / ".cache" / "audio2prompt" / "models"
         fallback.mkdir(parents=True, exist_ok=True)
         return fallback
 
@@ -642,7 +642,7 @@ class TranscriberWorker:
         self.cancel_event.clear()
         self._thread = threading.Thread(
             target=self._run,
-            name=f"voice2llm-{self.audio_path.name}",
+            name=f"audio2prompt-{self.audio_path.name}",
             daemon=True,
         )
         self._thread.start()

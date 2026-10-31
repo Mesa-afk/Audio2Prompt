@@ -1,4 +1,4 @@
-# Voice2LLM
+# Audio2Prompt
 
 **Превращайте двухчасовые подкасты и записи встреч в чистый, экономный по токенам текст для ChatGPT и Claude — локально, в один клик.**
 
@@ -11,9 +11,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Mesa-afk/Voice2LLM/releases/latest"><img alt="Скачать" src="https://img.shields.io/badge/⬇%20Download-Windows%20binary-A855F7?style=for-the-badge"></a>
+  <a href="https://github.com/Mesa-afk/Audio2Prompt/releases/latest"><img alt="Скачать" src="https://img.shields.io/badge/⬇%20Download-Windows%20binary-A855F7?style=for-the-badge"></a>
   &nbsp;
-  <a href="https://github.com/Mesa-afk/Voice2LLM/actions/workflows/build-release.yml"><img alt="Статус сборки" src="https://github.com/Mesa-afk/Voice2LLM/actions/workflows/build-release.yml/badge.svg"></a>
+  <a href="https://github.com/Mesa-afk/Audio2Prompt/actions/workflows/build-release.yml"><img alt="Статус сборки" src="https://github.com/Mesa-afk/Audio2Prompt/actions/workflows/build-release.yml/badge.svg"></a>
 </p>
 
 <p align="center">
@@ -31,7 +31,7 @@ Whisper — превосходная модель распознавания р�
 - **Установка — боль.** Большинству обёрток над Whisper нужен системный FFmpeg, CUDA Toolkit и «хирургия» с Python-пакетами. Для человека, который просто хочет расшифровать свой подкаст, это непреодолимый барьер.
 - **Длинные файлы всё ломают.** Наивные обёртки загружают 200-мегабайтный файл, замораживают интерфейс, не показывают прогресс и не умеют отменяться. Если что-то пошло не так на втором часу — результат потерян.
 
-Voice2LLM решает все эти проблемы: аудио декодируется сборкой PyAV, встроенной в `faster-whisper` (системный FFmpeg не нужен), тишина отсекается через Silero VAD, фрагменты склеиваются в читаемые абзацы, а результат в реальном времени появляется в тёмном отзывчивом десктопном приложении.
+Audio2Prompt решает все эти проблемы: аудио декодируется сборкой PyAV, встроенной в `faster-whisper` (системный FFmpeg не нужен), тишина отсекается через Silero VAD, фрагменты склеиваются в читаемые абзацы, а результат в реальном времени появляется в тёмном отзывчивом десктопном приложении.
 
 ## Возможности
 
@@ -54,16 +54,16 @@ Voice2LLM решает все эти проблемы: аудио декодир
 
 | Платформа | Готовый бинарник | Как получить |
 | --- | --- | --- |
-| **Windows x64** | ✅ Да | Скачайте `Voice2LLM-windows-x64.zip` из релизов |
+| **Windows x64** | ✅ Да | Скачайте `Audio2Prompt-windows-x64.zip` из релизов |
 | **Linux x64 / arm64** | ❌ Нет | Соберите локально — см. **Linux** ниже |
 | **macOS Intel / Apple Silicon** | ❌ Нет | Соберите локально — см. **macOS** ниже |
 
 ### Windows — скачать и запустить
 
-1. Откройте **[последний релиз](https://github.com/Mesa-afk/Voice2LLM/releases/latest)**.
-2. Скачайте **`Voice2LLM-windows-x64.zip`**.
-3. Распакуйте архив в любое место (например, `C:\Tools\Voice2LLM`).
-4. Запустите **`Voice2LLM.exe`**.
+1. Откройте **[последний релиз](https://github.com/Mesa-afk/Audio2Prompt/releases/latest)**.
+2. Скачайте **`Audio2Prompt-windows-x64.zip`**.
+3. Распакуйте архив в любое место (например, `C:\Tools\Audio2Prompt`).
+4. Запустите **`Audio2Prompt.exe`**.
 5. Выберите аудиофайл и модель, нажмите **«Начать»**.
 
 > **Первый запуск:** выбранная модель Whisper скачивается с Hugging Face в папку `models/` рядом с исполняемым файлом. `base` занимает несколько сотен мегабайт, `large-v3-turbo` — около 1,6 ГБ, `large-v3` — около 3,1 ГБ. Дальнейшие запуски мгновенные и полностью работают офлайн.
@@ -97,8 +97,8 @@ sudo pacman -S --needed python tk xclip
 #### 2. Клонируйте репозиторий и установите зависимости
 
 ```bash
-git clone https://github.com/Mesa-afk/Voice2LLM.git
-cd Voice2LLM
+git clone https://github.com/Mesa-afk/Audio2Prompt.git
+cd Audio2Prompt
 
 python3 -m venv venv
 source venv/bin/activate
@@ -119,7 +119,7 @@ python main.py
 python build.py --zip
 ```
 
-Результат — самодостаточная папка `dist/Voice2LLM/` с лаунчером `Voice2LLM` и архив `dist/Voice2LLM-linux-x64.zip` (на ARM суффикс будет `linux-arm64`). Собирайте на самом старом дистрибутиве, который планируете поддерживать: бинарник PyInstaller линкуется с glibc сборочной машины и не запустится на более старых системах.
+Результат — самодостаточная папка `dist/Audio2Prompt/` с лаунчером `Audio2Prompt` и архив `dist/Audio2Prompt-linux-x64.zip` (на ARM суффикс будет `linux-arm64`). Собирайте на самом старом дистрибутиве, который планируете поддерживать: бинарник PyInstaller линкуется с glibc сборочной машины и не запустится на более старых системах.
 
 > **GPU (опционально):** ускорение CUDA работает с NVIDIA GPU и совместимым runtime CUDA/cuDNN. Без него приложение автоматически использует CPU `int8` на всех доступных ядрах.
 
@@ -138,8 +138,8 @@ brew install python@3.12 python-tk@3.12
 #### 2. Клонируйте репозиторий и установите зависимости
 
 ```bash
-git clone https://github.com/Mesa-afk/Voice2LLM.git
-cd Voice2LLM
+git clone https://github.com/Mesa-afk/Audio2Prompt.git
+cd Audio2Prompt
 
 python3 -m venv venv
 source venv/bin/activate
@@ -156,7 +156,7 @@ python main.py
 python build.py --console
 ```
 
-В режиме по умолчанию (`--noconsole`) PyInstaller создаёт бандл `Voice2LLM.app`, а `build.py` проверяет обычную папочную сборку; поэтому `--console` создаёт сборку в `dist/Voice2LLM/`. Для распространения `.app` желательно подписать и нотаризовать его; Gatekeeper предупреждает о неподписанных сборках.
+В режиме по умолчанию (`--noconsole`) PyInstaller создаёт бандл `Audio2Prompt.app`, а `build.py` проверяет обычную папочную сборку; поэтому `--console` создаёт сборку в `dist/Audio2Prompt/`. Для распространения `.app` желательно подписать и нотаризовать его; Gatekeeper предупреждает о неподписанных сборках.
 
 ## Выбор модели
 
@@ -178,7 +178,7 @@ python build.py --console
 
 1. **Выберите `large-v3`.** Это самая точная модель Whisper для русского и большинства других языков. `base` и `small` подходят для черновика, но не для финальной транскрибации.
 2. **Оставьте «Точный режим» включённым** (откройте **«Дополнительно»**). Он поднимает `beam_size` с 5 до 10, использует `float32` вместо `int8` на CPU и добавляет промпт с пунктуацией. На CPU распознавание станет заметно медленнее (часто в 2–4 раза) — это осознанный обмен скорости на качество.
-3. **Опишите запись в поле «Контекст»** (тоже под **«Дополнительно»**). Имена, компании, названия продуктов, аббревиатуры и термины передаются в Whisper как hotwords в каждом 30-секундном окне. Например: `Иван Петров, Kubernetes, Voice2LLM, выручка, CAC, LTV`.
+3. **Опишите запись в поле «Контекст»** (тоже под **«Дополнительно»**). Имена, компании, названия продуктов, аббревиатуры и термины передаются в Whisper как hotwords в каждом 30-секундном окне. Например: `Иван Петров, Kubernetes, Audio2Prompt, выручка, CAC, LTV`.
 4. **Указывайте язык явно.** `ru` или `en` надёжнее автоопределения, особенно если в записи есть музыка, тишина или несколько собеседников. Автоопределение анализирует первые три 30-секундных окна, и позже язык нельзя исправить, поэтому явный выбор всё равно надёжнее.
 5. **Берите максимально качественный исходник.** Перекодированный в 64 кбит/с файл теряет согласные, которые не восстановит никакая модель. Лучше оригинальный WAV/M4A/MP3, без фоновой музыки и агрессивного шумоподавления.
 6. **Проверьте, какое устройство работает.** Строка статуса показывает `GPU · float16` или `CPU · float32`. GPU не меняет саму модель, но делает `large-v3` достаточно быстрой; если после сообщения «GPU недоступен» приложение работает на CPU, значит runtime CUDA/cuDNN установлен не полностью.
@@ -234,8 +234,8 @@ audio.mp3 ──► декодер PyAV ──► 16 кГц моно PCM ──�
 ### Запуск из исходников
 
 ```bash
-git clone https://github.com/Mesa-afk/Voice2LLM.git
-cd Voice2LLM
+git clone https://github.com/Mesa-afk/Audio2Prompt.git
+cd Audio2Prompt
 
 python -m venv venv
 # Windows (PowerShell)
@@ -249,12 +249,12 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Веса моделей кэшируются в папке `models/` рядом с `main.py` (исключена из git). Если эта папка недоступна для записи, приложение использует `~/.cache/voice2llm/models`.
+Веса моделей кэшируются в папке `models/` рядом с `main.py` (исключена из git). Если эта папка недоступна для записи, приложение использует `~/.cache/audio2prompt/models`.
 
 ### Сборка автономного бинарника
 
 ```bash
-python build.py           # dist/Voice2LLM/ (одна папка)
+python build.py           # dist/Audio2Prompt/ (одна папка)
 python build.py --zip     # дополнительно создаёт архив для платформы
 python build.py --console # оставить консоль для отладки
 ```
@@ -262,20 +262,20 @@ python build.py --console # оставить консоль для отладк�
 Скрипт сборки:
 
 - проверяет версию Python и установленные зависимости;
-- очищает прежние артефакты `build/`, `dist/Voice2LLM` и `Voice2LLM.spec`;
+- очищает прежние артефакты `build/`, `dist/Audio2Prompt` и `Audio2Prompt.spec`;
 - настраивает `--noconsole`, `--onedir`, `--noupx` и ресурс `VERSIONINFO` для Windows;
 - включает в сборку `customtkinter`, `faster_whisper`, `ctranslate2`, `tokenizers`, `onnxruntime`, `av` и `huggingface_hub` через `--collect-all`;
 - исключает тяжёлые неиспользуемые пакеты вроде `torch` и `pandas`;
 - проверяет наличие исполняемого файла и печатает итоговый размер.
 
-> **Кросс-платформенное примечание.** PyInstaller не умеет кросс-компиляцию, поэтому собирайте на той ОС, для которой нужен бинарник. В Linux получается `dist/Voice2LLM/Voice2LLM`; в Windows — `dist/Voice2LLM/Voice2LLM.exe`; в macOS оконный режим по умолчанию создаёт бандл `Voice2LLM.app`, поэтому для обычной папочной сборки используйте `python build.py --console`. GitHub Actions workflow сейчас собирает только Windows.
+> **Кросс-платформенное примечание.** PyInstaller не умеет кросс-компиляцию, поэтому собирайте на той ОС, для которой нужен бинарник. В Linux получается `dist/Audio2Prompt/Audio2Prompt`; в Windows — `dist/Audio2Prompt/Audio2Prompt.exe`; в macOS оконный режим по умолчанию создаёт бандл `Audio2Prompt.app`, поэтому для обычной папочной сборки используйте `python build.py --console`. GitHub Actions workflow сейчас собирает только Windows.
 
 Положите `assets/icon.ico` (Windows), `assets/icon.icns` (macOS) или `assets/icon.png` (Linux) в репозиторий, чтобы задать иконку бинарника.
 
 ### Структура проекта
 
 ```
-Voice2LLM/
+Audio2Prompt/
 ├── main.py                     # точка входа, DPI и taskbar для Windows
 ├── ui.py                       # тёмный интерфейс на customtkinter
 ├── transcriber.py              # поток-воркер, загрузка модели, постобработка
@@ -290,11 +290,11 @@ Voice2LLM/
 
 ### Релизы
 
-Пуш тега с версией запускает Windows-workflow, который собирает бинарник, упаковывает `dist/Voice2LLM` в zip и прикрепляет архив к GitHub Release:
+Пуш тега с версией запускает Windows-workflow, который собирает бинарник, упаковывает `dist/Audio2Prompt` в zip и прикрепляет архив к GitHub Release:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v2.0.0
+git push origin v2.0.0
 ```
 
 Workflow запускается только по тегам версий (`v*`), выполняется на `windows-latest` и всегда публикует Windows-архив в GitHub Release; именно разрешение `contents: write` позволяет прикрепить файл к релизу. Linux- и macOS-бинарники он не собирает — PyInstaller не умеет кросс-компиляцию, поэтому их нужно собирать на соответствующей ОС (см. раздел «Быстрый старт»).
@@ -313,7 +313,7 @@ Workflow запускается только по тегам версий (`v*`)
 
 ## Приватность
 
-Voice2LLM выполняет все операции локально: никаких сетевых вызовов, кроме однократного скачивания модели с Hugging Face, никакой аналитики и отчётов о сбоях. Аудио и транскрипции остаются на вашем диске.
+Audio2Prompt выполняет все операции локально: никаких сетевых вызовов, кроме однократного скачивания модели с Hugging Face, никакой аналитики и отчётов о сбоях. Аудио и транскрипции остаются на вашем диске.
 
 ## Лицензия
 

@@ -1,8 +1,8 @@
-"""Build the Voice2LLM desktop application with PyInstaller.
+"""Build the Audio2Prompt desktop application with PyInstaller.
 
 The script produces a one-folder (``--onedir``) Windows distribution in
-``dist/Voice2LLM``. A one-folder build is intentional: CTranslate2 loads model
-weights directly from the ``models/`` directory next to ``Voice2LLM.exe`` and
+``dist/Audio2Prompt``. A one-folder build is intentional: CTranslate2 loads model
+weights directly from the ``models/`` directory next to ``Audio2Prompt.exe`` and
 never unpacks hundreds of megabytes into ``%TEMP%`` on every launch, unlike
 ``--onefile``.
 
@@ -37,8 +37,8 @@ import zipfile
 from pathlib import Path
 from typing import List, Optional
 
-APP_NAME = "Voice2LLM"
-APP_VERSION = "1.2.0"
+APP_NAME = "Audio2Prompt"
+APP_VERSION = "2.0.0"
 APP_PUBLISHER = "Mesa-afk"
 
 ROOT = Path(__file__).resolve().parent
@@ -47,7 +47,7 @@ BUILD_DIR = ROOT / "build"
 DIST_DIR = ROOT / "dist"
 OUTPUT_DIR = DIST_DIR / APP_NAME
 SPEC_PATH = ROOT / f"{APP_NAME}.spec"
-VERSION_INFO_PREFIX = "voice2llm-version-"
+VERSION_INFO_PREFIX = "audio2prompt-version-"
 ARCHIVE_PREFIX = APP_NAME
 
 REQUIRED_MODULES = ("faster_whisper", "customtkinter", "pyperclip", "PyInstaller")
@@ -153,7 +153,7 @@ def check_environment() -> None:
     """Validate the interpreter, the entry point and installed dependencies."""
     if sys.version_info < (3, 10):
         raise BuildError(
-            "Voice2LLM requires Python 3.10 or newer to build; "
+            "Audio2Prompt requires Python 3.10 or newer to build; "
             f"the current interpreter is {sys.version.split()[0]}."
         )
     if not ENTRY_POINT.is_file():
@@ -232,7 +232,7 @@ def write_windows_version_info() -> Optional[Path]:
         '040904B0',
         [
           StringStruct('CompanyName', '{APP_PUBLISHER}'),
-          StringStruct('FileDescription', 'Voice2LLM - local audio transcription for LLMs'),
+          StringStruct('FileDescription', 'Audio2Prompt - local audio transcription for LLMs'),
           StringStruct('FileVersion', '{APP_VERSION}'),
           StringStruct('InternalName', '{APP_NAME}'),
           StringStruct('LegalCopyright', 'BSD 3-Clause License'),
@@ -353,7 +353,7 @@ def verify_output() -> Path:
 
 
 def create_archive() -> Path:
-    """Zip the one-folder build, preserving the ``Voice2LLM`` top-level folder."""
+    """Zip the one-folder build, preserving the ``Audio2Prompt`` top-level folder."""
     archive = DIST_DIR / f"{ARCHIVE_PREFIX}-{platform_tag()}.zip"
     if archive.exists():
         archive.unlink()
@@ -382,7 +382,7 @@ def create_archive() -> Path:
 def parse_arguments() -> argparse.Namespace:
     """Parse command-line options for local builds."""
     parser = argparse.ArgumentParser(
-        description="Build the Voice2LLM desktop application with PyInstaller."
+        description="Build the Audio2Prompt desktop application with PyInstaller."
     )
     parser.add_argument(
         "--zip",
