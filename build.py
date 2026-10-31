@@ -1,30 +1,38 @@
-"""Build a standalone Voice2LLM binary with PyInstaller.
+"""Build the Voice2LLM desktop application with PyInstaller.
+
+The script produces a one-folder (``--onedir``) Windows distribution in
+``dist/Voice2LLM``. A one-folder build is intentional: CTranslate2 loads model
+weights directly from the ``models/`` directory next to ``Voice2LLM.exe`` and
+never unpacks hundreds of megabytes into ``%TEMP%`` on every launch, unlike
+``--onefile``.
 
 Usage
 -----
-    python build.py            # one-folder build in dist/Voice2LLM
-    python build.py --zip      # also create a distributable archive
-    python build.py --console  # keep the console window (debugging)
+    python build.py             # default Windows build (no console window)
+    python build.py --zip       # also create a distributable archive
+    python build.py --console   # keep the console attached (debugging)
 
-The one-folder (``--onedir``) layout is intentional: CTranslate2 loads model
-weights straight from ``models/`` next to the executable, so long recordings do
-not pay a one-time extraction cost into a temporary directory.
+All heavy native dependencies (``faster-whisper``, CTranslate2, PyAV,
+onnxruntime) and ``customtkinter`` assets are collected with ``--collect-all``,
+otherwise PyInstaller's static analysis misses DLLs, ``.pyd`` modules, theme
+JSON files and the bundled Silero VAD model, and the produced executable fails
+at runtime.
 
-Optional local assets
----------------------
-* ``assets/icon.ico`` (Windows) / ``assets/icon.icns`` (macOS) are used as the
-  application icon when present.
+The process exits with a non-zero status code when PyInstaller fails or when
+the expected executable is missing, so GitHub Actions stops immediately.
 """
 
 from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import platform
 import shutil
 import sys
 import tempfile
 import time
+import traceback
 import zipfile
 from pathlib import Path
 from typing import List, Optional
@@ -39,21 +47,30 @@ BUILD_DIR = ROOT / "build"
 DIST_DIR = ROOT / "dist"
 OUTPUT_DIR = DIST_DIR / APP_NAME
 SPEC_PATH = ROOT / f"{APP_NAME}.spec"
+VERSION_INFO_PREFIX = "voice2llm-version-"
+ARCHIVE_PREFIX = APP_NAME
 
 REQUIRED_MODULES = ("faster_whisper", "customtkinter", "pyperclip", "PyInstaller")
 
-#: Whole packages that must ship with all submodules, data files and binaries.
-COLLECT_ALL = (
+#: Packages whose entire contents must be bundled: compiled extension modules,
+#: DLLs, metadata, theme JSON files and other package data.
+REQUIRED_COLLECT_ALL = (
     "customtkinter",
     "faster_whisper",
     "ctranslate2",
     "tokenizers",
+)
+
+#: Additional runtime dependencies of faster-whisper that also ship native
+#: libraries or data files (PyAV bundles FFmpeg, onnxruntime bundles the VAD
+#: engine, huggingface_hub downloads model weights).
+RUNTIME_COLLECT_ALL = (
     "onnxruntime",
     "av",
     "huggingface_hub",
 )
 
-#: Modules imported dynamically (plugins, backends, optional codecs).
+#: Modules imported dynamically that static analysis cannot see.
 HIDDEN_IMPORTS = (
     "faster_whisper",
     "ctranslate2",
@@ -72,8 +89,8 @@ HIDDEN_IMPORTS = (
     "queue",
 )
 
-#: Heavy libraries that are never used at runtime; excluding them keeps the
-#: archive substantially smaller.
+#: Heavy packages that are never imported at runtime; excluding them keeps the
+#: one-folder distribution significantly smaller.
 EXCLUDES = (
     "torch",
     "torchaudio",
@@ -95,13 +112,17 @@ EXCLUDES = (
 )
 
 
+class BuildError(RuntimeError):
+    """Raised when the build cannot start or produces no executable."""
+
+
 def log(message: str) -> None:
-    """Print a timestamped build message."""
+    """Print a timestamped build message and flush it for CI logs."""
     print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
 
 
 def human_size(size_bytes: int) -> str:
-    """Format a byte count as MB or GB for build summaries."""
+    """Format a byte count as megabytes or gigabytes."""
     megabytes = size_bytes / (1024 * 1024)
     if megabytes >= 1024:
         return f"{megabytes / 1024:.2f} GB"
@@ -109,7 +130,7 @@ def human_size(size_bytes: int) -> str:
 
 
 def platform_tag() -> str:
-    """Return an archive suffix describing the current platform and CPU."""
+    """Return ``windows-x64``, ``macos-arm64``, ``linux-x64`` and similar."""
     machine = platform.machine().lower() or "unknown"
     architecture = {
         "amd64": "x64",
@@ -129,14 +150,14 @@ def platform_tag() -> str:
 
 
 def check_environment() -> None:
-    """Abort early with an actionable message when the toolchain is missing."""
+    """Validate the interpreter, the entry point and installed dependencies."""
     if sys.version_info < (3, 10):
-        raise SystemExit(
-            "Voice2LLM requires Python 3.10 or newer to build. "
-            f"Current interpreter: {sys.version.split()[0]}"
+        raise BuildError(
+            "Voice2LLM requires Python 3.10 or newer to build; "
+            f"the current interpreter is {sys.version.split()[0]}."
         )
     if not ENTRY_POINT.is_file():
-        raise SystemExit(f"Entry point not found: {ENTRY_POINT}")
+        raise BuildError(f"Entry point not found: {ENTRY_POINT}")
 
     missing = [
         module
@@ -144,10 +165,10 @@ def check_environment() -> None:
         if importlib.util.find_spec(module) is None
     ]
     if missing:
-        raise SystemExit(
+        raise BuildError(
             "Missing build dependencies: "
             + ", ".join(missing)
-            + "\nInstall them with:  pip install -r requirements.txt"
+            + ". Install them with: python -m pip install -r requirements.txt"
         )
 
     log(f"Python {sys.version.split()[0]} · target {platform_tag()}")
@@ -159,9 +180,12 @@ def clean_previous_output() -> None:
         if path.exists():
             shutil.rmtree(path, ignore_errors=True)
             log(f"Removed {path.relative_to(ROOT)}")
+
     if SPEC_PATH.exists():
         SPEC_PATH.unlink()
         log(f"Removed {SPEC_PATH.name}")
+
+    DIST_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def find_icon() -> Optional[Path]:
@@ -172,6 +196,7 @@ def find_icon() -> Optional[Path]:
         candidates = (ROOT / "assets" / "icon.icns", ROOT / "icon.icns")
     else:
         candidates = (ROOT / "assets" / "icon.png", ROOT / "icon.png")
+
     for candidate in candidates:
         if candidate.is_file():
             return candidate
@@ -179,7 +204,7 @@ def find_icon() -> Optional[Path]:
 
 
 def write_windows_version_info() -> Optional[Path]:
-    """Generate the Windows VERSIONINFO resource (file properties dialog)."""
+    """Generate a Windows VERSIONINFO resource for the executable properties."""
     if sys.platform != "win32":
         return None
 
@@ -221,83 +246,102 @@ def write_windows_version_info() -> Optional[Path]:
   ]
 )
 """
-    # Written to the system temp directory: PyInstaller's ``--clean`` wipes
-    # the workpath, and this file must still exist when it is read.
+
+    # The resource lives in the system temp directory: PyInstaller's ``--clean``
+    # wipes the workpath, and the file must survive until it is read.
     handle = tempfile.NamedTemporaryFile(
         mode="w",
         suffix=".txt",
-        prefix="voice2llm-version-",
+        prefix=VERSION_INFO_PREFIX,
         encoding="utf-8",
         delete=False,
     )
     with handle:
         handle.write(content)
+
     log(f"Generated Windows version resource for v{APP_VERSION}")
     return Path(handle.name)
 
 
 def build_arguments(console: bool) -> List[str]:
-    """Assemble the PyInstaller command line."""
+    """Assemble the strict PyInstaller argument list."""
     arguments: List[str] = [
         str(ENTRY_POINT),
-        "--name",
-        APP_NAME,
+        f"--name={APP_NAME}",
         "--onedir",
-        "--noconfirm",
         "--clean",
+        "--noconfirm",
         "--noupx",
-        "--distpath",
-        str(DIST_DIR),
-        "--workpath",
-        str(BUILD_DIR),
-        "--specpath",
-        str(ROOT),
-        "--log-level",
-        "INFO",
+        "--log-level=INFO",
+        f"--distpath={DIST_DIR}",
+        f"--workpath={BUILD_DIR}",
+        f"--specpath={ROOT}",
     ]
 
-    # ``--noconsole`` is only meaningful on Windows and macOS. On Linux the
-    # flag is accepted but has no effect, so it is skipped for clarity.
-    if not console and sys.platform in ("win32", "darwin"):
+    if not console:
         arguments.append("--noconsole")
+
+    for module in REQUIRED_COLLECT_ALL + RUNTIME_COLLECT_ALL:
+        arguments.append(f"--collect-all={module}")
+
+    for module in HIDDEN_IMPORTS:
+        arguments.append(f"--hidden-import={module}")
+
+    for module in EXCLUDES:
+        arguments.append(f"--exclude-module={module}")
 
     icon = find_icon()
     if icon is not None:
-        arguments.extend(["--icon", str(icon)])
+        arguments.append(f"--icon={icon}")
         log(f"Using icon {icon.relative_to(ROOT)}")
     else:
         log("No application icon found (assets/icon.ico) — using the default")
 
     version_file = write_windows_version_info()
     if version_file is not None:
-        arguments.extend(["--version-file", str(version_file)])
-
-    for module in COLLECT_ALL:
-        arguments.extend(["--collect-all", module])
-    for module in HIDDEN_IMPORTS:
-        arguments.extend(["--hidden-import", module])
-    for module in EXCLUDES:
-        arguments.extend(["--exclude-module", module])
+        arguments.append(f"--version-file={version_file}")
 
     return arguments
 
 
-def run_pyinstaller(arguments: List[str]) -> None:
-    """Invoke PyInstaller in-process and stream its log output."""
-    from PyInstaller.__main__ import run as pyinstaller_run
+def run_pyinstaller(arguments: List[str]) -> int:
+    """Run PyInstaller in-process and return its exit status.
 
+    ``PyInstaller.__main__.run`` may raise :class:`SystemExit` on analysis or
+    build errors. Converting it to an integer lets the caller fail the GitHub
+    Actions job deterministically instead of printing a traceback.
+    """
+    try:
+        from PyInstaller.__main__ import run as pyinstaller_run
+    except ImportError as error:
+        raise BuildError(
+            "PyInstaller is not installed. "
+            "Run: python -m pip install 'pyinstaller>=6.0.0'"
+        ) from error
+
+    os.chdir(ROOT)
     log("Running PyInstaller (this can take a few minutes)…")
-    pyinstaller_run(arguments)
+
+    try:
+        pyinstaller_run(arguments)
+    except SystemExit as error:
+        code = error.code if isinstance(error.code, int) else 1
+        return code
+    except KeyboardInterrupt:
+        log("Build interrupted by the user.")
+        return 1
+
+    return 0
 
 
 def verify_output() -> Path:
-    """Ensure the expected executable and its data files were produced."""
+    """Ensure the executable and its support files were produced."""
     executable_name = f"{APP_NAME}.exe" if sys.platform == "win32" else APP_NAME
     executable = OUTPUT_DIR / executable_name
     if not executable.is_file():
-        raise SystemExit(
-            "PyInstaller finished but the executable is missing:\n"
-            f"  expected: {executable}"
+        raise BuildError(
+            "PyInstaller finished but the executable is missing. "
+            f"Expected: {executable}"
         )
 
     total_size = sum(
@@ -309,14 +353,17 @@ def verify_output() -> Path:
 
 
 def create_archive() -> Path:
-    """Zip the one-folder build preserving the ``Voice2LLM`` top-level folder."""
-    archive = DIST_DIR / f"{APP_NAME}-{platform_tag()}.zip"
+    """Zip the one-folder build, preserving the ``Voice2LLM`` top-level folder."""
+    archive = DIST_DIR / f"{ARCHIVE_PREFIX}-{platform_tag()}.zip"
     if archive.exists():
         archive.unlink()
 
     log(f"Creating {archive.name}…")
     with zipfile.ZipFile(
-        archive, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=6
+        archive,
+        mode="w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=6,
     ) as zip_file:
         for path in sorted(OUTPUT_DIR.rglob("*")):
             if not path.is_file():
@@ -324,7 +371,11 @@ def create_archive() -> Path:
             arcname = Path(APP_NAME) / path.relative_to(OUTPUT_DIR)
             zip_file.write(path, arcname=str(arcname))
 
-    log(f"Archive created: {archive.relative_to(ROOT)} ({human_size(archive.stat().st_size)})")
+    archive_size = archive.stat().st_size
+    if archive_size <= 0:
+        raise BuildError(f"Archive {archive.name} is empty.")
+
+    log(f"Archive created: {archive.relative_to(ROOT)} ({human_size(archive_size)})")
     return archive
 
 
@@ -343,37 +394,34 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="keep a console window attached (useful for debugging)",
     )
-    parser.add_argument(
-        "--no-clean",
-        action="store_true",
-        help="reuse previous build/dist artefacts instead of removing them",
-    )
     return parser.parse_args()
 
 
 def main() -> int:
-    """Run the full build pipeline and report a summary."""
+    """Execute the build pipeline and return a process exit code."""
     arguments = parse_arguments()
     started = time.monotonic()
 
-    check_environment()
-    if arguments.no_clean:
-        DIST_DIR.mkdir(parents=True, exist_ok=True)
-        BUILD_DIR.mkdir(parents=True, exist_ok=True)
-        log("Keeping previous build artefacts (--no-clean)")
-    else:
+    try:
+        check_environment()
         clean_previous_output()
 
-    DIST_DIR.mkdir(parents=True, exist_ok=True)
-    run_pyinstaller(build_arguments(arguments.console))
-    executable = verify_output()
+        exit_code = run_pyinstaller(build_arguments(arguments.console))
+        if exit_code != 0:
+            log(f"PyInstaller failed with exit code {exit_code}.")
+            return 1
 
-    archive: Optional[Path] = None
-    if arguments.zip:
-        archive = create_archive()
+        executable = verify_output()
+        archive = create_archive() if arguments.zip else None
+    except BuildError as error:
+        log(f"BUILD FAILED: {error}")
+        return 1
+    except Exception:
+        traceback.print_exc()
+        log("BUILD FAILED: unexpected error (see the traceback above).")
+        return 1
 
-    elapsed = time.monotonic() - started
-    log(f"Done in {elapsed:.1f}s")
+    log(f"Done in {time.monotonic() - started:.1f}s")
     log(f"Executable: {executable}")
     if archive is not None:
         log(f"Archive:    {archive}")
@@ -381,4 +429,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    exit_status = main()
+    if exit_status != 0:
+        log("Build failed. See the log above for details.")
+        sys.exit(1)
+    sys.exit(0)

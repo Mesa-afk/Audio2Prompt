@@ -3,14 +3,12 @@ name: Build Windows Release
 on:
   push:
     tags:
-      - "v*"
-  workflow_dispatch:
+      - 'v*'
 
 permissions:
   contents: write
 
 env:
-  PYTHON_VERSION: "3.10"
   APP_NAME: Voice2LLM
   ARCHIVE_NAME: Voice2LLM-windows-x64.zip
 
@@ -23,46 +21,52 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Set up Python
+      - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: '3.10'
           cache: pip
           cache-dependency-path: requirements.txt
 
+      - name: Upgrade pip, setuptools and wheel
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip wheel
           python -m pip install -r requirements.txt
+          python -m pip install --upgrade "pyinstaller>=6.0.0"
 
-      - name: Validate sources
-        run: python -m compileall -q main.py ui.py transcriber.py build.py
-
-      - name: Build application
+      - name: Build standalone application
         run: python build.py
+
+      - name: Verify executable was created
+        shell: pwsh
+        run: |
+          $exe = "dist\$env:APP_NAME\$env:APP_NAME.exe"
+          if (-not (Test-Path $exe)) {
+            throw "Build produced no executable at $exe"
+          }
+          $sizeMb = (Get-Item $exe).Length / 1MB
+          Write-Host ("Executable: {0} ({1:N1} MB)" -f $exe, $sizeMb)
 
       - name: Create release archive
         shell: pwsh
         run: |
-          $exe = "dist\$env:APP_NAME\$env:APP_NAME.exe"
-          if (-not (Test-Path $exe)) { throw "Executable not found at $exe" }
-          if (Test-Path $env:ARCHIVE_NAME) { Remove-Item $env:ARCHIVE_NAME -Force }
+          if (Test-Path $env:ARCHIVE_NAME) {
+            Remove-Item $env:ARCHIVE_NAME -Force
+          }
           Compress-Archive -Path "dist\$env:APP_NAME" -DestinationPath $env:ARCHIVE_NAME -CompressionLevel Optimal
-          $sizeMb = (Get-Item $env:ARCHIVE_NAME).Length / 1MB
-          Write-Host ("Archive size: {0:N1} MB" -f $sizeMb)
-          if ($sizeMb -lt 1) { throw "Archive is unexpectedly small" }
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Voice2LLM-windows-x64
-          path: Voice2LLM-windows-x64.zip
-          if-no-files-found: error
-          retention-days: 14
+          if (-not (Test-Path $env:ARCHIVE_NAME)) {
+            throw "Archive $env:ARCHIVE_NAME was not created"
+          }
+          $archiveMb = (Get-Item $env:ARCHIVE_NAME).Length / 1MB
+          Write-Host ("Archive: {0} ({1:N1} MB)" -f $env:ARCHIVE_NAME, $archiveMb)
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: Voice2LLM-windows-x64.zip
