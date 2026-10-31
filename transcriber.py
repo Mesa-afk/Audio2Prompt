@@ -82,6 +82,11 @@ MSG_ERROR = "error"
 _WHITESPACE_RE = re.compile(r"\s+")
 _SPACE_BEFORE_PUNCTUATION_RE = re.compile(r"\s+([,.;:!?…])")
 _SENTENCE_END_RE = re.compile(r"[.!?…]+(?=\s|$)")
+_TIMECODE_RE = re.compile(
+    r"\[\s*\d{1,3}:\d{2}(?::\d{2})?(?:[.,]\d+)?\s*"
+    r"(?:-->|->|–|—)\s*"
+    r"\d{1,3}:\d{2}(?::\d{2})?(?:[.,]\d+)?\s*\]"
+)
 
 # Exception text fragments that indicate a broken CUDA/cuDNN installation.
 # faster-whisper ships CUDA kernels, but cuBLAS/cuDNN DLLs must exist on the
@@ -176,6 +181,19 @@ def normalize_segment_text(text: str) -> str:
     normalized = _WHITESPACE_RE.sub(" ", text).strip()
     normalized = _SPACE_BEFORE_PUNCTUATION_RE.sub(r"\1", normalized)
     return normalized
+
+
+def strip_timecodes(text: str) -> str:
+    """Remove ``[00:01:02 -> 00:01:05]`` markers from ``text``.
+
+    Whisper segments do not normally contain timecodes, but some upstream
+    pipelines (and copy-pasted subtitles) do. They are pure token overhead for
+    an LLM, so "LLM Ready" mode drops them and tidies the leftover spacing.
+    """
+    if not text or "[" not in text:
+        return text
+    without_timecodes = _TIMECODE_RE.sub(" ", text)
+    return normalize_segment_text(without_timecodes)
 
 
 def count_sentences(text: str) -> int:
@@ -377,6 +395,11 @@ class TranscriptPostProcessor:
         cleaned = normalize_segment_text(text)
         if not cleaned:
             return None
+
+        if self.llm_mode:
+            cleaned = strip_timecodes(cleaned)
+            if not cleaned:
+                return None
 
         self._words += count_words(cleaned)
         start_seconds = max(0.0, float(start))
@@ -860,8 +883,8 @@ class TranscriberWorker:
         try:
             close_method()
         except Exception:
-            # Generators can already be exhausted or mid-decode; a collection
-            # pass is the safest way to release their native buffers.
+            # Generators can already be exhausted or mid-decode; a garbage
+            # collection run is the safest way to release native buffers.
             gc.collect()
 
     @staticmethod
@@ -906,6 +929,10 @@ class TranscriberWorker:
                 return model, device, compute_type
             except Exception as error:
                 failures.append(f"{device}/{compute_type}: {_truncate(error)}")
+                self._emit_status(
+                    f"Вариант {device} ({compute_type}) недоступен · "
+                    "пробую следующий…"
+                )
 
         details = "\n".join(f"• {failure}" for failure in failures)
         raise RuntimeError(
