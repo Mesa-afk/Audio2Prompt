@@ -677,7 +677,7 @@ class TranscriberWorker:
     def _run(self) -> None:
         started = time.monotonic()
         processor = TranscriptPostProcessor(self.llm_mode, self.include_system_prompt)
-        language_label = "автоопределение" if self.language == "auto" else self.language
+        language_label = "auto" if self.language == "auto" else self.language
 
         try:
             duration = probe_duration(self.audio_path)
@@ -687,10 +687,7 @@ class TranscriberWorker:
                     "Возможно, файл повреждён или это не аудио."
                 )
 
-            self._emit_status(
-                f"Загрузка модели «{self.model_size}»… "
-                "Первый запуск может занять несколько минут: скачиваются веса."
-            )
+            self._emit_status(f"Загрузка модели «{self.model_size}»…")
             gpu_available = cuda_is_available()
             model, device, compute_type = self._load_model(prefer_cuda=gpu_available)
             self._model = model
@@ -700,10 +697,9 @@ class TranscriberWorker:
             if self.cancel_event.is_set():
                 raise _Cancelled()
 
-            accuracy_label = " · точный режим" if self.accuracy_mode else ""
             self._emit_status(
                 f"Модель загружена · {self._device_label(device, compute_type)} · "
-                f"язык: {language_label}{accuracy_label}"
+                f"{language_label}"
             )
 
             header = processor.render_header()
@@ -727,10 +723,7 @@ class TranscriberWorker:
                     and not self.cancel_event.is_set()
                     and _is_cuda_error(inference_error)
                 ):
-                    self._emit_status(
-                        "GPU-ускорение недоступно · "
-                        f"{_truncate(inference_error, 52)} · перезапуск на CPU…"
-                    )
+                    self._emit_status("GPU недоступен · перезапуск на CPU…")
                     self._release_model()
                     processor = TranscriptPostProcessor(
                         self.llm_mode, self.include_system_prompt
@@ -744,13 +737,6 @@ class TranscriberWorker:
                     header = processor.render_header()
                     if header is not None:
                         self._emit({"type": MSG_HEADER, "text": header})
-                    fallback_label = (
-                        " · точный режим" if self.accuracy_mode else ""
-                    )
-                    self._emit_status(
-                        f"Распознавание · {self._device_label(device, compute_type)}"
-                        f"{fallback_label}"
-                    )
                     self._stream(
                         model=model,
                         duration=duration,
@@ -830,14 +816,13 @@ class TranscriberWorker:
 
         if detected_language:
             probability_text = (
-                f" · уверенность {language_probability * 100:.0f}%"
+                f" · {language_probability * 100:.0f}%"
                 if isinstance(language_probability, (int, float))
                 else ""
             )
-            accuracy_label = " · точный режим" if self.accuracy_mode else ""
             self._emit_status(
                 f"Распознавание · {self._device_label(device, compute_type)} · "
-                f"язык: {detected_language}{probability_text}{accuracy_label}"
+                f"{detected_language}{probability_text}"
             )
 
         self._emit(
@@ -1011,10 +996,7 @@ class TranscriberWorker:
                 return model, device, compute_type
             except Exception as error:
                 failures.append(f"{device}/{compute_type}: {_truncate(error)}")
-                self._emit_status(
-                    f"Вариант {device} ({compute_type}) недоступен · "
-                    "пробую следующий…"
-                )
+                self._emit_status(f"{device} · {compute_type} недоступен")
 
         details = "\n".join(f"• {failure}" for failure in failures)
         raise RuntimeError(
@@ -1032,5 +1014,5 @@ class TranscriberWorker:
     @staticmethod
     def _device_label(device: str, compute_type: str) -> str:
         if device == "cuda":
-            return f"GPU · CUDA · {compute_type}"
+            return f"GPU · {compute_type}"
         return f"CPU · {compute_type}"
