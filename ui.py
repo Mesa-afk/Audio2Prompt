@@ -1,10 +1,15 @@
-"""Dark-mode desktop interface for Voice2LLM.
+"""Minimal dark-mode desktop interface for Voice2LLM.
 
 The GUI is built with :mod:`customtkinter` and follows a strict rule: widgets
 are only ever touched from the Tk main loop. All work happens in
 :class:`transcriber.TranscriberWorker`, which posts plain dictionaries into a
 :class:`queue.Queue`; :meth:`Voice2LLMApp._poll_messages` drains that queue with
 ``after()`` callbacks.
+
+The window is intentionally reduced to the core workflow: choose a file, pick a
+model and language, start transcription, then copy or save the result. Accuracy
+controls and the optional system prompt live in a collapsible "Дополнительно"
+panel so they never clutter the main screen.
 """
 
 from __future__ import annotations
@@ -40,55 +45,40 @@ from transcriber import (
 # ---------------------------------------------------------------------------
 
 COLOR_BACKGROUND = "#0B0B0D"
-COLOR_PANEL = "#16161A"
-COLOR_PANEL_INNER = "#101013"
-COLOR_BORDER = "#26262C"
-COLOR_TEXT = "#F2F2F7"
-COLOR_MUTED = "#8E8E96"
+COLOR_PANEL = "#141417"
+COLOR_PANEL_INNER = "#0F0F12"
+COLOR_BORDER = "#25252B"
+COLOR_TEXT = "#EDEDF2"
+COLOR_MUTED = "#85858E"
 COLOR_ACCENT = "#A855F7"
 COLOR_ACCENT_HOVER = "#9333EA"
-COLOR_ACCENT_SOFT = "#C4B5FD"
-COLOR_DANGER = "#EF4444"
-COLOR_DANGER_HOVER = "#B91C1C"
-COLOR_SUCCESS = "#22C55E"
-COLOR_BUTTON = "#232329"
-COLOR_BUTTON_HOVER = "#2E2E37"
-COLOR_TRACK = "#26262C"
+COLOR_DANGER = "#E5484D"
+COLOR_DANGER_HOVER = "#B93A3F"
+COLOR_SUCCESS = "#34C759"
+COLOR_BUTTON = "#1D1D22"
+COLOR_BUTTON_HOVER = "#28282F"
+COLOR_TRACK = "#222228"
 
 # ---------------------------------------------------------------------------
 # Layout / timing constants
 # ---------------------------------------------------------------------------
 
-WINDOW_WIDTH = 1120
-WINDOW_HEIGHT = 790
-MINIMUM_WIDTH = 940
-MINIMUM_HEIGHT = 660
+WINDOW_WIDTH = 960
+WINDOW_HEIGHT = 700
+MINIMUM_WIDTH = 820
+MINIMUM_HEIGHT = 600
 
 QUEUE_POLL_INTERVAL_MS = 80
 TIMER_INTERVAL_MS = 250
 COPY_FEEDBACK_DURATION_MS = 2000
 CANCEL_CLOSE_TIMEOUT_SECONDS = 10.0
 
-PLACEHOLDER_TEXT = (
-    "Здесь появится транскрибация.\n\n"
-    "1. Выберите аудиофайл (MP3, WAV, M4A).\n"
-    "2. Выберите модель и язык.\n"
-    "3. Нажмите «Начать транскрибацию».\n\n"
-    "Готовый текст можно скопировать в ChatGPT или Claude одной кнопкой."
-)
+PLACEHOLDER_TEXT = "Выберите аудиофайл."
 
 LANGUAGE_LABELS: Dict[str, str] = {
     "Автоопределение": "auto",
     "Русский (ru)": "ru",
     "English (en)": "en",
-}
-
-MODEL_HINTS: Dict[str, str] = {
-    "base": "Черновая точность · очень быстро",
-    "small": "Быстрая · средняя точность",
-    "medium": "Высокая точность · больше ресурсов",
-    "large-v3-turbo": "Быстрая большая модель · нужен GPU",
-    "large-v3": "Максимальная точность · медленно без GPU",
 }
 
 
@@ -133,7 +123,7 @@ class Voice2LLMApp(ctk.CTk):
     def __init__(self) -> None:
         super().__init__(fg_color=COLOR_BACKGROUND)
 
-        self.title("Voice2LLM — транскрибация для LLM")
+        self.title("Voice2LLM")
         self.minsize(MINIMUM_WIDTH, MINIMUM_HEIGHT)
         self.configure(fg_color=COLOR_BACKGROUND)
 
@@ -144,6 +134,7 @@ class Voice2LLMApp(ctk.CTk):
         self._closing = False
         self._close_when_done = False
         self._close_deadline = 0.0
+        self._advanced_visible = False
 
         self._run_started_at = 0.0
         self._last_elapsed = 0.0
@@ -159,7 +150,7 @@ class Voice2LLMApp(ctk.CTk):
         self._build_layout()
         self._install_placeholder()
         self._set_running(False)
-        self._set_status("Готов к работе · выберите аудиофайл")
+        self._set_status("Готов")
         self._refresh_metrics(0.0)
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -197,92 +188,69 @@ class Voice2LLMApp(ctk.CTk):
             "Courier New",
         )
 
-        self.font_title = ctk.CTkFont(family=ui_family, size=28, weight="bold")
-        self.font_subtitle = ctk.CTkFont(family=ui_family, size=13)
-        self.font_section = ctk.CTkFont(family=ui_family, size=12, weight="bold")
+        self.font_title = ctk.CTkFont(family=ui_family, size=22, weight="bold")
         self.font_body = ctk.CTkFont(family=ui_family, size=13)
-        self.font_small = ctk.CTkFont(family=ui_family, size=12)
-        self.font_button = ctk.CTkFont(family=ui_family, size=14, weight="bold")
+        self.font_small = ctk.CTkFont(family=ui_family, size=11)
+        self.font_button = ctk.CTkFont(family=ui_family, size=13, weight="bold")
         self.font_status = ctk.CTkFont(family=ui_family, size=12)
-        self.font_metrics = ctk.CTkFont(family=ui_family, size=12)
-        self.font_text = ctk.CTkFont(family=mono_family, size=14)
-        self.font_chip = ctk.CTkFont(family=ui_family, size=11, weight="bold")
+        self.font_metrics = ctk.CTkFont(family=mono_family, size=12)
+        self.font_text = ctk.CTkFont(family=ui_family, size=14)
 
     def _build_layout(self) -> None:
         container = ctk.CTkFrame(self, fg_color=COLOR_BACKGROUND)
-        container.pack(fill="both", expand=True, padx=22, pady=18)
+        container.pack(fill="both", expand=True, padx=24, pady=20)
         container.grid_columnconfigure(0, weight=1)
-        container.grid_rowconfigure(3, weight=1)
+        container.grid_rowconfigure(4, weight=1)
 
         self._build_header(container)
-        self._build_options_card(container)
+        self._build_main_card(container)
+        self._build_advanced_panel(container)
         self._build_controls(container)
-        self._build_transcript_card(container)
+        self._build_transcript(container)
         self._build_footer(container)
 
     def _build_header(self, parent: ctk.CTkFrame) -> None:
         header = ctk.CTkFrame(parent, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", pady=(0, 16))
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 14))
         header.grid_columnconfigure(0, weight=1)
 
-        title_block = ctk.CTkFrame(header, fg_color="transparent")
-        title_block.grid(row=0, column=0, sticky="w")
-
         ctk.CTkLabel(
-            title_block,
+            header,
             text="Voice2LLM",
             font=self.font_title,
             text_color=COLOR_TEXT,
             anchor="w",
-        ).pack(anchor="w")
+        ).grid(row=0, column=0, sticky="w")
 
-        ctk.CTkLabel(
-            title_block,
-            text="Длинные аудио → чистый текст, готовый для ChatGPT и Claude",
-            font=self.font_subtitle,
-            text_color=COLOR_MUTED,
-            anchor="w",
-        ).pack(anchor="w", pady=(2, 0))
-
-        chip = ctk.CTkLabel(
-            header,
-            text="100% ЛОКАЛЬНО · БЕЗ FFMPEG",
-            font=self.font_chip,
-            text_color=COLOR_ACCENT_SOFT,
-            fg_color=COLOR_PANEL,
-            corner_radius=8,
-            width=230,
-            height=30,
-        )
-        chip.grid(row=0, column=1, sticky="e")
-
-    def _build_options_card(self, parent: ctk.CTkFrame) -> None:
-        card = ctk.CTkFrame(parent, fg_color=COLOR_PANEL, corner_radius=16)
+    def _build_main_card(self, parent: ctk.CTkFrame) -> None:
+        card = ctk.CTkFrame(parent, fg_color=COLOR_PANEL, corner_radius=14)
         card.grid(row=1, column=0, sticky="ew", pady=(0, 14))
         card.grid_columnconfigure(1, weight=1)
 
         self.choose_button = ctk.CTkButton(
             card,
-            text="Выбрать аудиофайл",
-            width=176,
-            height=38,
-            corner_radius=10,
+            text="Выбрать файл",
+            width=132,
+            height=34,
+            corner_radius=9,
             fg_color=COLOR_BUTTON,
             hover_color=COLOR_BUTTON_HOVER,
             text_color=COLOR_TEXT,
-            font=self.font_button,
+            font=self.font_body,
             command=self._choose_file,
         )
-        self.choose_button.grid(row=0, column=0, padx=(18, 14), pady=(16, 10), sticky="w")
+        self.choose_button.grid(
+            row=0, column=0, padx=(16, 12), pady=(14, 8), sticky="w"
+        )
 
         self.file_label = ctk.CTkLabel(
             card,
             text="Файл не выбран",
-            font=self.font_button,
+            font=self.font_body,
             text_color=COLOR_TEXT,
             anchor="w",
         )
-        self.file_label.grid(row=0, column=1, sticky="ew", pady=(16, 10))
+        self.file_label.grid(row=0, column=1, sticky="ew", pady=(14, 8))
 
         self.file_meta_label = ctk.CTkLabel(
             card,
@@ -291,29 +259,34 @@ class Voice2LLMApp(ctk.CTk):
             text_color=COLOR_MUTED,
             anchor="e",
         )
-        self.file_meta_label.grid(row=0, column=2, padx=(12, 18), pady=(16, 10), sticky="e")
+        self.file_meta_label.grid(
+            row=0, column=2, padx=(12, 16), pady=(14, 8), sticky="e"
+        )
 
-        settings = ctk.CTkFrame(card, fg_color="transparent")
-        settings.grid(row=1, column=0, columnspan=3, sticky="ew", padx=18, pady=(4, 18))
-        settings.grid_columnconfigure(3, weight=1)
+        options = ctk.CTkFrame(card, fg_color="transparent")
+        options.grid(row=1, column=0, columnspan=3, sticky="ew", padx=16, pady=(0, 14))
+        options.grid_columnconfigure(2, weight=1)
 
-        model_group = ctk.CTkFrame(settings, fg_color="transparent")
+        model_group = ctk.CTkFrame(options, fg_color="transparent")
         model_group.grid(row=0, column=0, sticky="w")
+        model_group.grid_columnconfigure(1, weight=1)
+
         ctk.CTkLabel(
             model_group,
-            text="МОДЕЛЬ",
-            font=self.font_section,
+            text="Модель",
+            font=self.font_small,
             text_color=COLOR_MUTED,
             anchor="w",
-        ).pack(anchor="w")
+        ).grid(row=0, column=0, padx=(0, 8))
+
         self.model_menu = ctk.CTkOptionMenu(
             model_group,
             values=list(MODEL_SIZES),
-            width=190,
-            height=34,
-            corner_radius=9,
+            width=150,
+            height=32,
+            corner_radius=8,
             fg_color=COLOR_BUTTON,
-            button_color="#2C2C33",
+            button_color=COLOR_BUTTON,
             button_hover_color=COLOR_BUTTON_HOVER,
             text_color=COLOR_TEXT,
             dropdown_fg_color=COLOR_PANEL,
@@ -321,28 +294,30 @@ class Voice2LLMApp(ctk.CTk):
             dropdown_text_color=COLOR_TEXT,
             font=self.font_body,
             dropdown_font=self.font_body,
-            command=self._on_model_change,
         )
         self.model_menu.set("small")
-        self.model_menu.pack(anchor="w", pady=(6, 0))
+        self.model_menu.grid(row=0, column=1, sticky="w")
 
-        language_group = ctk.CTkFrame(settings, fg_color="transparent")
+        language_group = ctk.CTkFrame(options, fg_color="transparent")
         language_group.grid(row=0, column=1, sticky="w", padx=(22, 0))
+        language_group.grid_columnconfigure(1, weight=1)
+
         ctk.CTkLabel(
             language_group,
-            text="ЯЗЫК",
-            font=self.font_section,
+            text="Язык",
+            font=self.font_small,
             text_color=COLOR_MUTED,
             anchor="w",
-        ).pack(anchor="w")
+        ).grid(row=0, column=0, padx=(0, 8))
+
         self.language_menu = ctk.CTkOptionMenu(
             language_group,
             values=list(LANGUAGE_LABELS.keys()),
-            width=170,
-            height=34,
-            corner_radius=9,
+            width=150,
+            height=32,
+            corner_radius=8,
             fg_color=COLOR_BUTTON,
-            button_color="#2C2C33",
+            button_color=COLOR_BUTTON,
             button_hover_color=COLOR_BUTTON_HOVER,
             text_color=COLOR_TEXT,
             dropdown_fg_color=COLOR_PANEL,
@@ -352,70 +327,79 @@ class Voice2LLMApp(ctk.CTk):
             dropdown_font=self.font_body,
         )
         self.language_menu.set("Автоопределение")
-        self.language_menu.pack(anchor="w", pady=(6, 0))
+        self.language_menu.grid(row=0, column=1, sticky="w")
 
         self.llm_switch = ctk.CTkSwitch(
-            settings,
-            text="Режим для LLM",
+            options,
+            text="LLM-режим",
             font=self.font_body,
             text_color=COLOR_TEXT,
             progress_color=COLOR_ACCENT,
             button_color=COLOR_TEXT,
             button_hover_color="#FFFFFF",
-            width=48,
+            width=42,
             command=self._on_llm_toggle,
         )
-        self.llm_switch.grid(row=0, column=2, sticky="sw", padx=(30, 0), pady=(0, 6))
+        self.llm_switch.grid(row=0, column=3, padx=(16, 14), sticky="e")
         self.llm_switch.select()
 
-        self.prompt_checkbox = ctk.CTkCheckBox(
-            settings,
-            text="Добавить системный промпт",
-            font=self.font_body,
-            text_color=COLOR_TEXT,
-            fg_color=COLOR_ACCENT,
-            hover_color=COLOR_ACCENT_HOVER,
-            border_color="#3F3F48",
-            border_width=2,
-            checkbox_width=20,
-            checkbox_height=20,
-            corner_radius=5,
-            checkmark_color=COLOR_BACKGROUND,
-        )
-        self.prompt_checkbox.grid(row=0, column=3, sticky="sw", padx=(24, 0), pady=(0, 6))
-
-        self.model_hint_label = ctk.CTkLabel(
-            settings,
-            text=MODEL_HINTS["small"],
-            font=self.font_small,
+        self.advanced_button = ctk.CTkButton(
+            options,
+            text="Дополнительно",
+            width=118,
+            height=28,
+            corner_radius=7,
+            fg_color="transparent",
+            hover_color=COLOR_BUTTON,
             text_color=COLOR_MUTED,
-            anchor="e",
+            font=self.font_small,
+            command=self._toggle_advanced,
         )
-        self.model_hint_label.grid(
-            row=1, column=0, columnspan=3, sticky="w", pady=(10, 0)
-        )
+        self.advanced_button.grid(row=0, column=4, sticky="e")
+
+    def _build_advanced_panel(self, parent: ctk.CTkFrame) -> None:
+        panel = ctk.CTkFrame(parent, fg_color=COLOR_PANEL, corner_radius=12)
+        panel.grid(row=2, column=0, sticky="ew", pady=(0, 12))
+        panel.grid_columnconfigure(1, weight=1)
 
         self.accuracy_switch = ctk.CTkSwitch(
-            settings,
+            panel,
             text="Точный режим",
             font=self.font_body,
             text_color=COLOR_TEXT,
             progress_color=COLOR_ACCENT,
             button_color=COLOR_TEXT,
             button_hover_color="#FFFFFF",
-            width=48,
-            command=self._refresh_model_hint,
+            width=42,
         )
-        self.accuracy_switch.grid(row=1, column=3, sticky="e", pady=(10, 0))
+        self.accuracy_switch.grid(
+            row=0, column=0, padx=(16, 12), pady=(12, 0), sticky="w"
+        )
         self.accuracy_switch.select()
 
+        self.prompt_checkbox = ctk.CTkCheckBox(
+            panel,
+            text="Системный промпт",
+            font=self.font_body,
+            text_color=COLOR_TEXT,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            border_color=COLOR_BORDER,
+            border_width=2,
+            checkbox_width=18,
+            checkbox_height=18,
+            corner_radius=4,
+            checkmark_color=COLOR_BACKGROUND,
+        )
+        self.prompt_checkbox.grid(
+            row=0, column=1, padx=(12, 16), pady=(12, 0), sticky="e"
+        )
+
         self.context_entry = ctk.CTkEntry(
-            settings,
-            placeholder_text=(
-                "Контекст: имена, названия, термины, тема записи (необязательно)"
-            ),
-            height=36,
-            corner_radius=9,
+            panel,
+            placeholder_text="Имена, термины, контекст",
+            height=34,
+            corner_radius=8,
             border_width=1,
             border_color=COLOR_BORDER,
             fg_color=COLOR_PANEL_INNER,
@@ -424,59 +408,63 @@ class Voice2LLMApp(ctk.CTk):
             font=self.font_body,
         )
         self.context_entry.grid(
-            row=2, column=0, columnspan=4, sticky="ew", pady=(12, 0)
+            row=1, column=0, columnspan=2, sticky="ew", padx=16, pady=(10, 12)
         )
-        self._refresh_model_hint()
+
+        self.advanced_panel = panel
+        panel.grid_remove()
 
     def _build_controls(self, parent: ctk.CTkFrame) -> None:
         controls = ctk.CTkFrame(parent, fg_color="transparent")
-        controls.grid(row=2, column=0, sticky="ew", pady=(0, 12))
+        controls.grid(row=3, column=0, sticky="ew", pady=(0, 12))
         controls.grid_columnconfigure(1, weight=1)
 
         self.primary_button = ctk.CTkButton(
             controls,
-            text="Начать транскрибацию",
-            width=236,
-            height=52,
-            corner_radius=12,
+            text="Начать",
+            width=150,
+            height=42,
+            corner_radius=10,
             fg_color=COLOR_ACCENT,
             hover_color=COLOR_ACCENT_HOVER,
             text_color="#FFFFFF",
             font=self.font_button,
             command=self._on_primary_click,
         )
-        self.primary_button.grid(row=0, column=0, rowspan=2, sticky="w", padx=(0, 18))
-
-        progress_row = ctk.CTkFrame(controls, fg_color="transparent")
-        progress_row.grid(row=0, column=1, sticky="ew")
-        progress_row.grid_columnconfigure(0, weight=1)
+        self.primary_button.grid(
+            row=0, column=0, rowspan=2, sticky="w", padx=(0, 16)
+        )
 
         self.progress_bar = ctk.CTkProgressBar(
-            progress_row,
-            height=10,
-            corner_radius=5,
+            controls,
+            height=8,
+            corner_radius=4,
             fg_color=COLOR_TRACK,
             progress_color=COLOR_ACCENT,
         )
-        self.progress_bar.grid(row=0, column=0, sticky="ew", pady=(8, 0))
+        self.progress_bar.grid(row=0, column=1, sticky="ew", pady=(6, 0))
         self.progress_bar.set(0)
 
         self.percent_label = ctk.CTkLabel(
-            progress_row,
+            controls,
             text="0%",
-            width=52,
+            width=44,
             font=self.font_metrics,
             text_color=COLOR_TEXT,
             anchor="e",
         )
-        self.percent_label.grid(row=0, column=1, sticky="e", padx=(12, 0), pady=(8, 0))
+        self.percent_label.grid(
+            row=0, column=2, sticky="e", padx=(10, 0), pady=(6, 0)
+        )
 
-        status_row = ctk.CTkFrame(controls, fg_color="transparent")
-        status_row.grid(row=1, column=1, sticky="ew", pady=(6, 0))
-        status_row.grid_columnconfigure(0, weight=1)
+        info_row = ctk.CTkFrame(controls, fg_color="transparent")
+        info_row.grid(
+            row=1, column=1, columnspan=2, sticky="ew", pady=(7, 0)
+        )
+        info_row.grid_columnconfigure(0, weight=1)
 
         self.status_label = ctk.CTkLabel(
-            status_row,
+            info_row,
             text="",
             font=self.font_status,
             text_color=COLOR_MUTED,
@@ -485,97 +473,71 @@ class Voice2LLMApp(ctk.CTk):
         self.status_label.grid(row=0, column=0, sticky="w")
 
         self.metrics_label = ctk.CTkLabel(
-            status_row,
+            info_row,
             text="",
             font=self.font_metrics,
             text_color=COLOR_MUTED,
             anchor="e",
         )
-        self.metrics_label.grid(row=0, column=1, sticky="e")
+        self.metrics_label.grid(row=0, column=1, sticky="e", padx=(10, 0))
 
-    def _build_transcript_card(self, parent: ctk.CTkFrame) -> None:
-        card = ctk.CTkFrame(parent, fg_color=COLOR_PANEL, corner_radius=16)
-        card.grid(row=3, column=0, sticky="nsew")
-        card.grid_columnconfigure(0, weight=1)
-        card.grid_rowconfigure(1, weight=1)
-
-        header = ctk.CTkFrame(card, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", padx=18, pady=(14, 6))
-        header.grid_columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(
-            header,
-            text="ТРАНСКРИБАЦИЯ",
-            font=self.font_section,
-            text_color=COLOR_MUTED,
-            anchor="w",
-        ).grid(row=0, column=0, sticky="w")
-
-        ctk.CTkLabel(
-            header,
-            text="Автопрокрутка при поступлении новых фрагментов",
-            font=self.font_small,
-            text_color=COLOR_MUTED,
-            anchor="e",
-        ).grid(row=0, column=1, sticky="e")
-
+    def _build_transcript(self, parent: ctk.CTkFrame) -> None:
         self.textbox = ctk.CTkTextbox(
-            card,
+            parent,
             fg_color=COLOR_PANEL_INNER,
             border_width=1,
             border_color=COLOR_BORDER,
             corner_radius=12,
-            border_spacing=12,
+            border_spacing=14,
             text_color=COLOR_TEXT,
-            scrollbar_button_color="#2C2C33",
+            scrollbar_button_color=COLOR_BUTTON,
             scrollbar_button_hover_color=COLOR_ACCENT,
             font=self.font_text,
             wrap="word",
         )
-        self.textbox.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 16))
+        self.textbox.grid(row=4, column=0, sticky="nsew")
 
     def _build_footer(self, parent: ctk.CTkFrame) -> None:
         footer = ctk.CTkFrame(parent, fg_color="transparent")
-        footer.grid(row=4, column=0, sticky="ew", pady=(14, 0))
-        footer.grid_columnconfigure(1, weight=1)
+        footer.grid(row=5, column=0, sticky="ew", pady=(12, 0))
+        footer.grid_columnconfigure(0, weight=1)
 
         self.copy_button = ctk.CTkButton(
             footer,
-            text="Скопировать всё в буфер",
-            width=232,
-            height=42,
-            corner_radius=11,
+            text="Копировать",
+            width=140,
+            height=36,
+            corner_radius=9,
             fg_color=COLOR_BUTTON,
             hover_color=COLOR_BUTTON_HOVER,
             text_color=COLOR_TEXT,
-            font=self.font_button,
+            font=self.font_body,
             command=self._copy_all,
         )
-        self.copy_button.grid(row=0, column=0, sticky="w")
-
-        ctk.CTkLabel(
-            footer,
-            text="Аудио не покидает ваш компьютер",
-            font=self.font_small,
-            text_color=COLOR_MUTED,
-            anchor="center",
-        ).grid(row=0, column=1, sticky="ew", padx=16)
+        self.copy_button.grid(row=0, column=1, sticky="e", padx=(0, 8))
 
         self.save_button = ctk.CTkButton(
             footer,
-            text="Сохранить в .txt / .md",
-            width=214,
-            height=42,
-            corner_radius=11,
-            fg_color=COLOR_PANEL,
+            text="Сохранить",
+            width=130,
+            height=36,
+            corner_radius=9,
+            fg_color=COLOR_BUTTON,
             hover_color=COLOR_BUTTON_HOVER,
-            border_width=1,
-            border_color=COLOR_ACCENT,
-            text_color=COLOR_ACCENT_SOFT,
-            font=self.font_button,
+            text_color=COLOR_TEXT,
+            font=self.font_body,
             command=self._save_text,
         )
         self.save_button.grid(row=0, column=2, sticky="e")
+
+    def _toggle_advanced(self) -> None:
+        self._advanced_visible = not self._advanced_visible
+        if self._advanced_visible:
+            self.advanced_panel.grid()
+            self.advanced_button.configure(text="Свернуть")
+        else:
+            self.advanced_panel.grid_remove()
+            self.advanced_button.configure(text="Дополнительно")
 
     def _center_window(self) -> None:
         self.update_idletasks()
@@ -619,19 +581,18 @@ class Voice2LLMApp(ctk.CTk):
             else "--:--"
         )
         words = _pluralize(self._words, "слово", "слова", "слов")
-        tokens = _pluralize(self._tokens, "токен", "токена", "токенов")
         self.metrics_label.configure(
             text=(
-                f"⏱ {format_duration(elapsed)} / {eta_text}"
-                f"   ·   {self._words} {words}"
-                f"   ·   ~{self._tokens} {tokens}"
+                f"{format_duration(elapsed)} / {eta_text}"
+                f" · {self._words} {words}"
+                f" · ~{self._tokens} ток."
             )
         )
 
     def _set_status(self, text: str, error: bool = False) -> None:
         single_line = " ".join(str(text).split())
-        if len(single_line) > 120:
-            single_line = single_line[:119].rstrip() + "…"
+        if len(single_line) > 52:
+            single_line = single_line[:51].rstrip() + "…"
         self.status_label.configure(
             text=single_line,
             text_color=COLOR_DANGER if error else COLOR_MUTED,
@@ -642,7 +603,7 @@ class Voice2LLMApp(ctk.CTk):
     def _choose_file(self) -> None:
         patterns = " ".join(f"*{extension}" for extension in SUPPORTED_AUDIO_EXTENSIONS)
         selected = filedialog.askopenfilename(
-            title="Выберите аудиофайл",
+            title="Аудиофайл",
             filetypes=[
                 ("Аудио и видео", patterns),
                 ("Все файлы", "*.*"),
@@ -661,31 +622,14 @@ class Voice2LLMApp(ctk.CTk):
         if size <= 0:
             messagebox.showerror(
                 "Пустой файл",
-                "Выбранный файл имеет нулевой размер. Выберите другой файл.",
+                "Выбранный файл имеет нулевой размер.",
             )
             return
 
         self._audio_path = candidate
         self.file_label.configure(text=_shorten_filename(candidate.name))
         self.file_meta_label.configure(text=_format_size(size))
-        self._set_status(
-            f"Файл выбран · длительность будет определена при запуске · "
-            f"модель {self.model_menu.get()}"
-        )
-
-    def _on_model_change(self, selected_model: str) -> None:
-        self._refresh_model_hint()
-
-    def _refresh_model_hint(self) -> None:
-        """Show the model hint plus accuracy advice for the current selection."""
-        model = self.model_menu.get()
-        hint = MODEL_HINTS.get(model, "")
-        if self.accuracy_switch.get():
-            if model in ("base", "small"):
-                hint = f"{hint} · для точности выберите large-v3"
-            else:
-                hint = f"{hint} · beam 10"
-        self.model_hint_label.configure(text=hint)
+        self._set_status("Готов")
 
     def _on_llm_toggle(self) -> None:
         llm_enabled = bool(self.llm_switch.get())
@@ -708,7 +652,7 @@ class Voice2LLMApp(ctk.CTk):
             )
         else:
             self.primary_button.configure(
-                text="Начать транскрибацию",
+                text="Начать",
                 fg_color=COLOR_ACCENT,
                 hover_color=COLOR_ACCENT_HOVER,
                 state="normal",
@@ -721,6 +665,7 @@ class Voice2LLMApp(ctk.CTk):
         self.llm_switch.configure(state=options_state)
         self.accuracy_switch.configure(state=options_state)
         self.context_entry.configure(state=options_state)
+        self.advanced_button.configure(state=options_state)
 
         prompt_state = (
             "normal" if bool(self.llm_switch.get()) and not running else "disabled"
@@ -739,7 +684,7 @@ class Voice2LLMApp(ctk.CTk):
         if self._audio_path is None or not self._audio_path.is_file():
             messagebox.showwarning(
                 "Файл не выбран",
-                "Сначала выберите аудиофайл (MP3, WAV или M4A).",
+                "Сначала выберите аудиофайл.",
             )
             return
 
@@ -777,7 +722,7 @@ class Voice2LLMApp(ctk.CTk):
         self.progress_bar.set(0)
         self.percent_label.configure(text="0%")
         self._refresh_metrics(0.0)
-        self._set_status("Подготовка · загрузка модели…")
+        self._set_status("Загрузка модели…")
         self._set_running(True)
         self._worker = worker
 
@@ -786,7 +731,7 @@ class Voice2LLMApp(ctk.CTk):
         except Exception as error:
             self._worker = None
             self._set_running(False)
-            self._set_status("Не удалось запустить транскрибацию", error=True)
+            self._set_status("Не удалось запустить", error=True)
             messagebox.showerror("Не удалось запустить", str(error))
 
     def _clear_transcript(self) -> None:
@@ -799,7 +744,7 @@ class Voice2LLMApp(ctk.CTk):
             return
         self._worker.cancel()
         self.primary_button.configure(text="Останавливаю…", state="disabled")
-        self._set_status("Останавливаю транскрибацию…")
+        self._set_status("Останавливаю…")
 
     # -- queue handling -----------------------------------------------------
 
@@ -912,16 +857,14 @@ class Voice2LLMApp(ctk.CTk):
 
         device = str(message.get("device") or "")
         compute_type = str(message.get("compute_type") or "")
-        device_label = "GPU (CUDA)" if device == "cuda" else "CPU"
+        device_label = "GPU" if device == "cuda" else "CPU"
         if compute_type:
             device_label = f"{device_label} · {compute_type}"
-        language = str(message.get("language") or "")
-        language_text = f" · язык: {language}" if language else ""
 
         if cancelled:
             self._set_status(
-                f"Остановлено · обработано {format_duration(self._last_elapsed)} · "
-                f"{self._words} {_pluralize(self._words, 'слово', 'слова', 'слов')}"
+                f"Остановлено · {self._words} "
+                f"{_pluralize(self._words, 'слово', 'слова', 'слов')}"
             )
         else:
             self._percent = 100.0
@@ -930,9 +873,7 @@ class Voice2LLMApp(ctk.CTk):
             self._set_status(
                 f"Готово · {self._words} "
                 f"{_pluralize(self._words, 'слово', 'слова', 'слов')} · "
-                f"~{self._tokens} "
-                f"{_pluralize(self._tokens, 'токен', 'токена', 'токенов')} · "
-                f"{device_label}{language_text}"
+                f"{device_label}"
             )
             self.bell()
 
@@ -985,7 +926,7 @@ class Voice2LLMApp(ctk.CTk):
     def _copy_all(self) -> None:
         text = self._current_text()
         if not text:
-            self._set_status("Нечего копировать · текст ещё пуст")
+            self._set_status("Текст пуст")
             return
 
         try:
@@ -1000,9 +941,9 @@ class Voice2LLMApp(ctk.CTk):
                 return
 
         self.copy_button.configure(
-            text="Скопировано!",
+            text="Скопировано",
             fg_color=COLOR_SUCCESS,
-            hover_color="#16A34A",
+            hover_color=COLOR_SUCCESS,
             text_color=COLOR_BACKGROUND,
         )
         if self._copy_reset_job is not None:
@@ -1010,15 +951,12 @@ class Voice2LLMApp(ctk.CTk):
         self._copy_reset_job = self.after(
             COPY_FEEDBACK_DURATION_MS, self._reset_copy_button
         )
-        self._set_status(
-            f"Скопировано в буфер обмена · {len(text)} "
-            f"{_pluralize(len(text), 'символ', 'символа', 'символов')}"
-        )
+        self._set_status("Скопировано")
 
     def _reset_copy_button(self) -> None:
         self._copy_reset_job = None
         self.copy_button.configure(
-            text="Скопировать всё в буфер",
+            text="Копировать",
             fg_color=COLOR_BUTTON,
             hover_color=COLOR_BUTTON_HOVER,
             text_color=COLOR_TEXT,
@@ -1029,7 +967,7 @@ class Voice2LLMApp(ctk.CTk):
         if not text:
             messagebox.showwarning(
                 "Нечего сохранять",
-                "Сначала выполните транскрибацию — текст пока пуст.",
+                "Сначала выполните транскрибацию.",
             )
             return
 
@@ -1038,7 +976,7 @@ class Voice2LLMApp(ctk.CTk):
             default_name = f"{self._audio_path.stem}_transcript.txt"
 
         target = filedialog.asksaveasfilename(
-            title="Сохранить транскрибацию",
+            title="Сохранить текст",
             defaultextension=".txt",
             initialfile=default_name,
             filetypes=[
@@ -1056,7 +994,7 @@ class Voice2LLMApp(ctk.CTk):
             messagebox.showerror("Не удалось сохранить файл", str(error))
             return
 
-        self._set_status(f"Сохранено: {target}")
+        self._set_status(f"Сохранено: {Path(target).name}")
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -1071,7 +1009,6 @@ class Voice2LLMApp(ctk.CTk):
 
         should_close = messagebox.askyesno(
             "Выход",
-            "Транскрибация ещё выполняется.\n"
             "Остановить обработку и закрыть программу?",
         )
         if not should_close:
@@ -1081,7 +1018,7 @@ class Voice2LLMApp(ctk.CTk):
             self._worker.cancel()
         self._close_when_done = True
         self._close_deadline = time.monotonic() + CANCEL_CLOSE_TIMEOUT_SECONDS
-        self._set_status("Останавливаю и закрываю…")
+        self._set_status("Закрываю…")
         self.primary_button.configure(state="disabled")
 
     def _destroy_now(self) -> None:

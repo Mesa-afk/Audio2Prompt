@@ -47,7 +47,7 @@ Voice2LLM fixes all of this: it decodes audio with the PyAV build that ships ins
 - **Automatic GPU acceleration.** CUDA + `float16` is selected when a compatible GPU is found; otherwise the app falls back to CPU (`int8`, or `float32` in accuracy mode), and even retries on CPU if CUDA fails mid-run. The status line always reports the device and compute type actually in use.
 - **Live feedback.** Streaming segments, percentage, elapsed/remaining time, word count and an estimated token count (`words × 1.33`).
 - **Cancellable and thread-safe.** Recognition runs in a dedicated `threading.Thread`; the GUI is updated only through a `queue.Queue`, and a `threading.Event` cancels gracefully while keeping partial results.
-- **Modern dark UI.** `customtkinter` interface with a `#0B0B0D` canvas, `#16161A` panels, `#A855F7` accents, auto-scroll, one-click copy and `.txt` / `.md` export.
+- **Minimal dark UI.** A compact single-screen `customtkinter` workspace with a `#0B0B0D` canvas, `#141417` panels and `#A855F7` accents. Only the core controls are visible; accuracy, context and the optional system prompt sit behind the **«Дополнительно»** toggle. The transcript auto-scrolls, and one click copies it or exports `.txt` / `.md`.
 - **One-folder builds.** `--onedir` packaging means models load instantly from the `models/` folder next to the executable, without unpacking to a temporary directory.
 
 ## Quick Start (For Users)
@@ -64,7 +64,7 @@ Voice2LLM fixes all of this: it decodes audio with the PyAV build that ships ins
 2. Download **`Voice2LLM-windows-x64.zip`**.
 3. Extract the archive anywhere (for example `C:\Tools\Voice2LLM`).
 4. Run **`Voice2LLM.exe`**.
-5. Pick an audio file, choose a model, press **Начать транскрибацию**.
+5. Pick an audio file, choose a model, press **Начать**.
 
 > **First launch:** the selected Whisper model is downloaded from Hugging Face into the `models/` folder next to the executable. `base` is a few hundred MB, `large-v3-turbo` is about 1.6 GB and `large-v3` is about 3.1 GB. Later launches start instantly and work fully offline.
 
@@ -177,11 +177,11 @@ A two-hour podcast on a mid-range GPU with `large-v3-turbo` typically takes a fe
 Whisper quality depends far more on the model and the audio than on any UI setting. If the transcript contains misheard words, missing phrases or broken punctuation, work through this list in order:
 
 1. **Use `large-v3`.** It is the most accurate Whisper model for Russian and most other languages. `base` and `small` are meant for drafts, not for final transcripts.
-2. **Keep “Точный режим” (Accuracy mode) on.** It raises `beam_size` from 5 to 10, uses `float32` instead of `int8` on CPU, and adds a punctuation-rich initial prompt. Expect CPU transcription to be noticeably slower (often 2–4×) — that is the intended speed/quality trade-off.
-3. **Describe the recording in “Контекст”.** Names, companies, product names, acronyms and domain terms are passed to Whisper as hotwords in every 30-second window. For example: `Иван Петров, Kubernetes, Voice2LLM, выручка, CAC, LTV`.
+2. **Keep “Точный режим” (Accuracy mode) on** (open **«Дополнительно»**). It raises `beam_size` from 5 to 10, uses `float32` instead of `int8` on CPU, and adds a punctuation-rich initial prompt. Expect CPU transcription to be noticeably slower (often 2–4×) — that is the intended speed/quality trade-off.
+3. **Describe the recording in “Контекст”** (also under **«Дополнительно»**). Names, companies, product names, acronyms and domain terms are passed to Whisper as hotwords in every 30-second window. For example: `Иван Петров, Kubernetes, Voice2LLM, выручка, CAC, LTV`.
 4. **Select the language explicitly.** `ru` or `en` is more reliable than auto-detection, especially on recordings with music, silence or several speakers. Auto-detection samples the first three 30-second windows and cannot be corrected afterwards, so an explicit language is still safer.
 5. **Start from the best source audio.** A 64 kbps re-encode loses consonants that no model can recover. Prefer the original WAV/M4A/MP3, remove background music where possible, and avoid recordings made with aggressive noise suppression.
-6. **Check which device is active.** The status line shows `GPU · CUDA · float16` or `CPU · float32`. A GPU does not change the model itself, but it makes `large-v3` fast enough to use; if the app reports CPU after saying “GPU-ускорение недоступно”, the CUDA/cuDNN runtime is incomplete.
+6. **Check which device is active.** The status line shows `GPU · float16` or `CPU · float32`. A GPU does not change the model itself, but it makes `large-v3` fast enough to use; if the app reports CPU after saying “GPU недоступен”, the CUDA/cuDNN runtime is incomplete.
 
 Accuracy mode is also used in the **With timecodes** output mode, so both formats benefit from the same decoder settings.
 
@@ -301,7 +301,7 @@ The workflow is triggered only by version tags (`v*`), runs on `windows-latest`,
 
 | Symptom | Fix |
 | --- | --- |
-| “GPU-ускорение недоступно… перезапуск на CPU” | CUDA/cuDNN DLLs are missing or the driver crashed. The app already restarted on CPU and reset the timer; install the NVIDIA runtime if you want GPU speed. |
+| “GPU недоступен… перезапуск на CPU” | CUDA/cuDNN DLLs are missing or the driver crashed. The app already restarted on CPU and reset the timer; install the NVIDIA runtime if you want GPU speed. |
 | Very slow first transcription | The model is downloading. Watch the status line; subsequent runs load from `models/` instantly. |
 | “Не удалось определить длительность аудиофайла” | The file is corrupt or is not an audio stream. Re-export it as MP3/WAV/M4A. |
 | SmartScreen / antivirus warning | Expected for an unsigned PyInstaller binary. Verify the release checksum or build from source. |
