@@ -1,4 +1,4 @@
-"""Voice2LLM application entry point.
+"""Audio2Prompt application entry point.
 
 Run with ``python main.py`` for development, or build a standalone binary with
 ``python build.py``. The module keeps all Windows-specific setup (DPI awareness
@@ -29,7 +29,7 @@ def _ensure_standard_streams() -> None:
         sys.stdout = open(os.devnull, "w", encoding="utf-8")
 
     if sys.stderr is None:
-        log_path = Path(tempfile.gettempdir()) / "voice2llm.log"
+        log_path = Path(tempfile.gettempdir()) / "audio2prompt.log"
         try:
             sys.stderr = open(log_path, "a", encoding="utf-8", buffering=1)
         except OSError:
@@ -38,7 +38,7 @@ def _ensure_standard_streams() -> None:
 
 def _show_fatal_error(message: str) -> None:
     """Report a startup failure without relying on a console window."""
-    print(f"Voice2LLM: {message}", file=sys.stderr)
+    print(f"Audio2Prompt: {message}", file=sys.stderr)
     if sys.platform != "win32":
         return
     try:
@@ -47,7 +47,7 @@ def _show_fatal_error(message: str) -> None:
         ctypes.windll.user32.MessageBoxW(
             0,
             message,
-            "Voice2LLM — критическая ошибка",
+            "Audio2Prompt — критическая ошибка",
             0x00000010,  # MB_ICONERROR
         )
     except Exception as dialog_error:
@@ -72,7 +72,7 @@ def _enable_windows_integration() -> None:
 
     try:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-            "MesaAFK.Voice2LLM.Desktop.1"
+            "MesaAFK.Audio2Prompt.Desktop.1"
         )
     except Exception as shell_error:
         print(f"Taskbar AppUserModelID unavailable: {shell_error}", file=sys.stderr)
@@ -95,10 +95,10 @@ def main() -> int:
     try:
         import customtkinter as ctk
 
-        from ui import Voice2LLMApp
+        from ui import Audio2PromptApp
 
         ctk.set_appearance_mode("dark")
-        app = Voice2LLMApp()
+        app = Audio2PromptApp()
     except Exception:
         _show_fatal_error(
             "Не удалось запустить приложение.\n\n" + traceback.format_exc()

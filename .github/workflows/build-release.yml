@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 env:
-  APP_NAME: Voice2LLM
-  ARCHIVE_NAME: Voice2LLM-windows-x64.zip
+  APP_NAME: Audio2Prompt
+  ARCHIVE_NAME: Audio2Prompt-windows-x64.zip
 
 jobs:
   build-windows:
@@ -69,7 +69,8 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: Voice2LLM-windows-x64.zip
+          name: Audio2Prompt ${{ github.ref_name }}
+          files: Audio2Prompt-windows-x64.zip
           generate_release_notes: true
           fail_on_unmatched_files: true
           # Release-candidate tags must not replace the stable "Latest" release.

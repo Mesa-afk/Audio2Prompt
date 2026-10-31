@@ -1,9 +1,9 @@
-"""Minimal dark-mode desktop interface for Voice2LLM.
+"""Minimal dark-mode desktop interface for Audio2Prompt.
 
 The GUI is built with :mod:`customtkinter` and follows a strict rule: widgets
 are only ever touched from the Tk main loop. All work happens in
 :class:`transcriber.TranscriberWorker`, which posts plain dictionaries into a
-:class:`queue.Queue`; :meth:`Voice2LLMApp._poll_messages` drains that queue with
+:class:`queue.Queue`; :meth:`Audio2PromptApp._poll_messages` drains that queue with
 ``after()`` callbacks.
 
 The window is intentionally reduced to the core workflow: choose a file, pick a
@@ -117,13 +117,13 @@ def _shorten_filename(name: str, limit: int = 58) -> str:
     return f"{path.stem[:stem_budget]}…{extension}"
 
 
-class Voice2LLMApp(ctk.CTk):
+class Audio2PromptApp(ctk.CTk):
     """Main application window."""
 
     def __init__(self) -> None:
         super().__init__(fg_color=COLOR_BACKGROUND)
 
-        self.title("Voice2LLM")
+        self.title("Audio2Prompt")
         self.minsize(MINIMUM_WIDTH, MINIMUM_HEIGHT)
         self.configure(fg_color=COLOR_BACKGROUND)
 
@@ -216,7 +216,7 @@ class Voice2LLMApp(ctk.CTk):
 
         ctk.CTkLabel(
             header,
-            text="Voice2LLM",
+            text="Audio2Prompt",
             font=self.font_title,
             text_color=COLOR_TEXT,
             anchor="w",
@@ -971,7 +971,7 @@ class Voice2LLMApp(ctk.CTk):
             )
             return
 
-        default_name = "voice2llm_transcript.txt"
+        default_name = "audio2prompt_transcript.txt"
         if self._audio_path is not None:
             default_name = f"{self._audio_path.stem}_transcript.txt"
 

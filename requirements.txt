@@ -1,4 +1,4 @@
-# Voice2LLM runtime and build dependencies (Python 3.10+)
+# Audio2Prompt runtime and build dependencies (Python 3.10+)
 
 # ASR engine: CTranslate2 backend with bundled PyAV decoding (no system FFmpeg)
 faster-whisper==1.2.1
