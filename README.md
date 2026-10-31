@@ -177,7 +177,7 @@ A two-hour podcast on a mid-range GPU with `large-v3-turbo` typically takes a fe
 Whisper quality depends far more on the model and the audio than on any UI setting. If the transcript contains misheard words, missing phrases or broken punctuation, work through this list in order:
 
 1. **Use `large-v3`.** It is the most accurate Whisper model for Russian and most other languages. `base` and `small` are meant for drafts, not for final transcripts.
-2. **Keep “Точный режим” (Accuracy mode) on.** It raises `beam_size` from 5 to 10, uses `float32` instead of `int8` on CPU, and adds a punctuation-rich initial prompt. Expect CPU transcription to be roughly 2–3× slower — that is the intended speed/quality trade-off.
+2. **Keep “Точный режим” (Accuracy mode) on.** It raises `beam_size` from 5 to 10, uses `float32` instead of `int8` on CPU, and adds a punctuation-rich initial prompt. Expect CPU transcription to be noticeably slower (often 2–4×) — that is the intended speed/quality trade-off.
 3. **Describe the recording in “Контекст”.** Names, companies, product names, acronyms and domain terms are passed to Whisper as hotwords in every 30-second window. For example: `Иван Петров, Kubernetes, Voice2LLM, выручка, CAC, LTV`.
 4. **Select the language explicitly.** `ru` or `en` is more reliable than auto-detection, especially on recordings with music, silence or several speakers. Auto-detection samples the first three 30-second windows and cannot be corrected afterwards, so an explicit language is still safer.
 5. **Start from the best source audio.** A 64 kbps re-encode loses consonants that no model can recover. Prefer the original WAV/M4A/MP3, remove background music where possible, and avoid recordings made with aggressive noise suppression.
