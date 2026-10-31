@@ -911,7 +911,10 @@ class Voice2LLMApp(ctk.CTk):
         self._eta = None
 
         device = str(message.get("device") or "")
+        compute_type = str(message.get("compute_type") or "")
         device_label = "GPU (CUDA)" if device == "cuda" else "CPU"
+        if compute_type:
+            device_label = f"{device_label} · {compute_type}"
         language = str(message.get("language") or "")
         language_text = f" · язык: {language}" if language else ""
 
